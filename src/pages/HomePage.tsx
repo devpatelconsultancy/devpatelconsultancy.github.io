@@ -381,14 +381,10 @@ export default function HomePage() {
                     <span className="grid size-12 place-items-center rounded-md bg-mint text-forest transition group-hover:bg-forest group-hover:text-white">
                       <service.icon size={24} />
                     </span>
-                    <div className="mt-6 flex items-start justify-between gap-4">
+                    <div className="mt-6">
                       <h3 className="font-display text-xl font-bold text-ink">
                         {service.title}
                       </h3>
-                      <ChevronRight
-                        size={20}
-                        className="mt-1 shrink-0 text-teal opacity-0 transition group-hover:translate-x-1 group-hover:opacity-100"
-                      />
                     </div>
                     <p className="mt-3 leading-7 text-ink/66">{service.text}</p>
                   </motion.article>
