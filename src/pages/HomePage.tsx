@@ -404,8 +404,7 @@ export default function HomePage() {
                   businesses.
                 </h2>
                 <p className="mt-6 text-lg leading-8 text-white/72">
-                  Built from the service strengths of Goldmark Consultancy, this
-                  standalone practice is positioned for clients who need direct,
+                  This founder-led practice is positioned for clients who need direct,
                   experienced support for tax, GST, audit coordination, accounting and
                   regulatory matters.
                 </p>
