@@ -1,0 +1,1 @@
+# devpatelconsultancy.github.io
