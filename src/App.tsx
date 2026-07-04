@@ -1,5 +1,7 @@
 import { Helmet } from 'react-helmet-async';
+import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import HomePage from './pages/HomePage';
+import LoginPage from './pages/LoginPage';
 
 const businessSchema = {
   '@context': 'https://schema.org',
@@ -29,11 +31,9 @@ const businessSchema = {
 
 export default function App() {
   return (
-    <>
+    <BrowserRouter>
       <Helmet>
-        <title>
-          Dev Patel and Associates | Tax Consultant in Kalina, Mumbai
-        </title>
+        <title>Dev Patel and Associates | Tax Consultant in Kalina, Mumbai</title>
         <meta
           name="description"
           content="Experienced tax, GST, accounting, ROC compliance and business advisory support for individuals, founders and businesses in Kalina, Santacruz East, Mumbai."
@@ -53,11 +53,12 @@ export default function App() {
           content="Reliable tax, accounting and compliance support for individuals, entrepreneurs and businesses."
         />
         <meta property="og:image" content="/dev-patel-hero.png" />
-        <script type="application/ld+json">
-          {JSON.stringify(businessSchema)}
-        </script>
+        <script type="application/ld+json">{JSON.stringify(businessSchema)}</script>
       </Helmet>
-      <HomePage />
-    </>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/login" element={<LoginPage />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
