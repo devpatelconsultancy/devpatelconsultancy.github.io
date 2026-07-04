@@ -21,6 +21,20 @@ export type WorkEntry = {
   profiles?: Pick<StaffProfile, 'full_name'> | null;
 };
 
+export type RemarkHistory = {
+  id: string;
+  work_entry_id: string;
+  editor_user_id: string | null;
+  old_remarks: string | null;
+  new_remarks: string | null;
+  changed_at: string;
+  profiles?: Pick<StaffProfile, 'full_name'> | null;
+  work_entries?: Pick<
+    WorkEntry,
+    'client_name' | 'task' | 'work_date' | 'user_id'
+  > | null;
+};
+
 const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL ??
   import.meta.env.NEXT_PUBLIC_SUPABASE_URL) as string | undefined;
 const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ??

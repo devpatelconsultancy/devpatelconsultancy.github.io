@@ -16,11 +16,19 @@ import {
   Users,
 } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { hasSupabaseConfig, StaffProfile, supabase, WorkEntry } from '../lib/supabase';
+import {
+  hasSupabaseConfig,
+  RemarkHistory,
+  StaffProfile,
+  supabase,
+  WorkEntry,
+} from '../lib/supabase';
 
 type AuthMode = 'login' | 'signup';
 type AdminTab = 'today' | 'pending' | 'month' | 'history';
 type StatusFilter = WorkEntry['status'] | 'all';
+type StaffQuickFilter = 'all' | 'today' | 'pending' | 'completed_month';
+type PendingDetailView = 'staff' | 'client';
 
 type EntryForm = {
   work_date: string;
@@ -388,9 +396,13 @@ function EntryFormCard({ onSaved }: { onSaved: () => void }) {
 function SummaryCards({
   entries,
   isAdmin,
+  activeFilter = 'all',
+  onFilterChange,
 }: {
   entries: WorkEntry[];
   isAdmin: boolean;
+  activeFilter?: StaffQuickFilter;
+  onFilterChange?: (filter: StaffQuickFilter) => void;
 }) {
   const summary = useMemo(() => {
     return {
@@ -407,22 +419,80 @@ function SummaryCards({
 
   const cards = isAdmin
     ? ([
-        ['Today hours', summary.todayHours, Clock3],
-        ['Pending work', summary.pendingCount, FileText],
-        ['Staff tracked', summary.staffCount, Users],
-      ] as const)
+        {
+          label: 'Today hours',
+          value: summary.todayHours,
+          icon: Clock3,
+          filter: 'today',
+          cue: undefined,
+        },
+        {
+          label: 'Pending work',
+          value: summary.pendingCount,
+          icon: FileText,
+          filter: 'pending',
+          cue: undefined,
+        },
+        {
+          label: 'Staff tracked',
+          value: summary.staffCount,
+          icon: Users,
+          filter: 'all',
+          cue: undefined,
+        },
+      ] satisfies Array<{
+        label: string;
+        value: number;
+        icon: typeof Clock3;
+        filter: StaffQuickFilter;
+        cue?: string;
+      }>)
     : ([
-        ['Today hours', summary.todayHours, Clock3],
-        ['Pending tasks', summary.pendingCount, FileText],
-        ['Completed this month', summary.completedThisMonth, CheckCircle2],
-      ] as const);
+        {
+          label: 'Today hours',
+          value: summary.todayHours,
+          icon: Clock3,
+          filter: 'today',
+          cue: "View today's entries",
+        },
+        {
+          label: 'Pending tasks',
+          value: summary.pendingCount,
+          icon: FileText,
+          filter: 'pending',
+          cue: 'View pending work',
+        },
+        {
+          label: 'Completed this month',
+          value: summary.completedThisMonth,
+          icon: CheckCircle2,
+          filter: 'completed_month',
+          cue: 'View completed work',
+        },
+      ] satisfies Array<{
+        label: string;
+        value: number;
+        icon: typeof Clock3;
+        filter: StaffQuickFilter;
+        cue?: string;
+      }>);
 
   return (
     <div className="grid gap-4 sm:grid-cols-3">
-      {cards.map(([label, value, Icon]) => (
-        <div
+      {cards.map(({ label, value, icon: Icon, filter, cue }) => {
+        const isActive = activeFilter === filter;
+        const nextFilter = isActive ? 'all' : filter;
+
+        return (
+          <button
           key={label}
-          className="rounded-md border border-line bg-white p-5 shadow-card"
+          type="button"
+          onClick={() => onFilterChange?.(nextFilter)}
+          className={`group rounded-md border bg-white p-5 text-left shadow-card transition ${
+            onFilterChange
+              ? 'cursor-pointer hover:-translate-y-0.5 hover:border-forest hover:shadow-soft focus-visible:outline-forest'
+              : 'cursor-default border-line'
+          } ${isActive ? 'border-forest ring-2 ring-forest/15' : 'border-line'}`}
         >
           <div className="flex items-center justify-between gap-4">
             <p className="text-sm font-bold uppercase tracking-[0.12em] text-ink/52">
@@ -431,8 +501,17 @@ function SummaryCards({
             <Icon className="text-forest" size={21} />
           </div>
           <p className="mt-3 font-display text-3xl font-extrabold text-ink">{value}</p>
-        </div>
-      ))}
+          {onFilterChange && (
+            <p className="mt-3 text-xs font-bold uppercase tracking-[0.12em] text-forest">
+              {isActive ? 'Showing below' : cue ?? 'View entries'}
+              <span className="ml-2 inline-block transition group-hover:translate-x-1">
+                &gt;
+              </span>
+            </p>
+          )}
+        </button>
+        );
+      })}
     </div>
   );
 }
@@ -443,13 +522,34 @@ function EntriesTable({
   title,
   staffProfiles = [],
   onStatusChange,
+  onRemarksChange,
 }: {
   entries: WorkEntry[];
   isAdmin: boolean;
   title: string;
   staffProfiles?: StaffProfile[];
   onStatusChange?: (entryId: string, status: WorkEntry['status']) => void;
+  onRemarksChange?: (entryId: string, remarks: string) => Promise<void>;
 }) {
+  const [editingRemarks, setEditingRemarks] = useState<Record<string, string>>({});
+  const [savingRemarkId, setSavingRemarkId] = useState<string | null>(null);
+
+  async function handleSaveRemarks(entry: WorkEntry) {
+    if (!onRemarksChange) {
+      return;
+    }
+
+    const nextRemarks = editingRemarks[entry.id] ?? entry.remarks ?? '';
+    setSavingRemarkId(entry.id);
+    await onRemarksChange(entry.id, nextRemarks);
+    setSavingRemarkId(null);
+    setEditingRemarks((current) => {
+      const next = { ...current };
+      delete next[entry.id];
+      return next;
+    });
+  }
+
   return (
     <section className="rounded-md border border-line bg-white shadow-card">
       <div className="border-b border-line p-5">
@@ -506,7 +606,37 @@ function EntriesTable({
                     </span>
                   )}
                 </td>
-                <td className="min-w-56 px-5 py-4 text-ink/68">{entry.remarks}</td>
+                <td className="min-w-72 px-5 py-4 text-ink/68">
+                  {onRemarksChange ? (
+                    <div className="grid gap-2">
+                      <textarea
+                        rows={2}
+                        value={editingRemarks[entry.id] ?? entry.remarks ?? ''}
+                        onChange={(event) =>
+                          setEditingRemarks((current) => ({
+                            ...current,
+                            [entry.id]: event.target.value,
+                          }))
+                        }
+                        className="w-full rounded-md border border-line px-3 py-2 text-sm text-ink outline-none focus:border-forest"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleSaveRemarks(entry)}
+                        disabled={
+                          savingRemarkId === entry.id ||
+                          (editingRemarks[entry.id] ?? entry.remarks ?? '') ===
+                            (entry.remarks ?? '')
+                        }
+                        className="justify-self-start rounded-md border border-line px-3 py-2 text-xs font-bold text-forest transition hover:border-forest disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {savingRemarkId === entry.id ? 'Saving...' : 'Save remarks'}
+                      </button>
+                    </div>
+                  ) : (
+                    entry.remarks
+                  )}
+                </td>
               </tr>
             ))}
             {entries.length === 0 && (
@@ -529,9 +659,25 @@ function EntriesTable({
 function AdminSummaryCards({
   entries,
   profiles,
+  onReportedClick,
+  onNotReportedClick,
+  onPendingClick,
+  onCompletedClick,
+  reportedExpanded = false,
+  notReportedExpanded = false,
+  pendingExpanded = false,
+  completedExpanded = false,
 }: {
   entries: WorkEntry[];
   profiles: StaffProfile[];
+  onReportedClick?: () => void;
+  onNotReportedClick?: () => void;
+  onPendingClick?: () => void;
+  onCompletedClick?: () => void;
+  reportedExpanded?: boolean;
+  notReportedExpanded?: boolean;
+  pendingExpanded?: boolean;
+  completedExpanded?: boolean;
 }) {
   const staffProfiles = profiles.filter((item) => item.role === 'staff');
   const todaysEntries = entries.filter((entry) => entry.work_date === today);
@@ -546,19 +692,54 @@ function AdminSummaryCards({
   ).length;
 
   const cards = [
-    ['Reported today', reportedToday.size, UserCheck],
-    ['Not reported', Math.max(staffProfiles.length - reportedToday.size, 0), UserX],
-    ['Today hours', todayHours, Clock3],
-    ['Pending work', pendingCount, ListChecks],
-    ['Completed today', completedToday, CheckCircle2],
-  ] as const;
+    {
+      label: 'Reported today',
+      value: reportedToday.size,
+      icon: UserCheck,
+      onClick: onReportedClick,
+      active: reportedExpanded,
+      cue: reportedExpanded ? 'Hide tracker' : 'View tracker',
+    },
+    {
+      label: 'Not reported',
+      value: Math.max(staffProfiles.length - reportedToday.size, 0),
+      icon: UserX,
+      onClick: onNotReportedClick,
+      active: notReportedExpanded,
+      cue: notReportedExpanded ? 'Hide list' : 'View staff',
+    },
+    { label: 'Today hours', value: todayHours, icon: Clock3 },
+    {
+      label: 'Pending work',
+      value: pendingCount,
+      icon: ListChecks,
+      onClick: onPendingClick,
+      active: pendingExpanded,
+      cue: pendingExpanded ? 'Hide work' : 'View work',
+    },
+    {
+      label: 'Completed today',
+      value: completedToday,
+      icon: CheckCircle2,
+      onClick: onCompletedClick,
+      active: completedExpanded,
+      cue: completedExpanded ? 'Hide details' : 'View details',
+    },
+  ];
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-      {cards.map(([label, value, Icon]) => (
-        <div
+      {cards.map(({ label, value, icon: Icon, onClick, active, cue }) => (
+        <button
           key={label}
-          className="rounded-md border border-line bg-white p-5 shadow-card"
+          type="button"
+          onClick={onClick}
+          disabled={!onClick}
+          className={`group rounded-md border bg-white p-5 text-left shadow-card transition ${
+            onClick
+              ? 'cursor-pointer hover:-translate-y-0.5 hover:border-forest hover:shadow-soft focus-visible:outline-forest'
+              : 'cursor-default border-line'
+          } ${active ? 'border-forest ring-2 ring-forest/15' : 'border-line'}`}
         >
           <div className="flex items-center justify-between gap-4">
             <p className="text-xs font-bold uppercase tracking-[0.12em] text-ink/52">
@@ -567,7 +748,15 @@ function AdminSummaryCards({
             <Icon className="text-forest" size={21} />
           </div>
           <p className="mt-3 font-display text-3xl font-extrabold text-ink">{value}</p>
-        </div>
+          {onClick && (
+            <p className="mt-3 text-xs font-bold uppercase tracking-[0.12em] text-forest">
+              {cue}
+              <span className="ml-2 inline-block transition group-hover:translate-x-1">
+                &gt;
+              </span>
+            </p>
+          )}
+        </button>
       ))}
     </div>
   );
@@ -646,6 +835,70 @@ function StaffTracker({
               <tr>
                 <td className="px-5 py-8 text-center text-ink/60" colSpan={5}>
                   No staff profiles yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function NotReportedStaff({
+  entries,
+  profiles,
+}: {
+  entries: WorkEntry[];
+  profiles: StaffProfile[];
+}) {
+  const reportedToday = new Set(
+    entries.filter((entry) => entry.work_date === today).map((entry) => entry.user_id),
+  );
+  const rows = profiles
+    .filter((staff) => staff.role === 'staff' && !reportedToday.has(staff.id))
+    .map((staff) => {
+      const lastEntry = entries.find((entry) => entry.user_id === staff.id);
+
+      return {
+        staff,
+        lastDate: lastEntry?.work_date,
+        pendingCount: entries.filter(
+          (entry) => entry.user_id === staff.id && entry.status !== 'completed',
+        ).length,
+      };
+    });
+
+  return (
+    <section className="rounded-md border border-line bg-white shadow-card">
+      <div className="border-b border-line p-5">
+        <h2 className="font-display text-xl font-bold">Staff not reported today</h2>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-line text-left text-sm">
+          <thead className="bg-mint text-xs uppercase tracking-[0.12em] text-ink/58">
+            <tr>
+              <th className="px-5 py-3">Staff</th>
+              <th className="px-5 py-3">Last submitted</th>
+              <th className="px-5 py-3">Pending tasks</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {rows.map((row) => (
+              <tr key={row.staff.id}>
+                <td className="whitespace-nowrap px-5 py-4 font-semibold">
+                  {row.staff.full_name}
+                </td>
+                <td className="whitespace-nowrap px-5 py-4 text-ink/66">
+                  {row.lastDate ? formatDate(row.lastDate) : 'No entries yet'}
+                </td>
+                <td className="px-5 py-4">{row.pendingCount}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr>
+                <td className="px-5 py-8 text-center text-ink/60" colSpan={3}>
+                  Every staff member has reported today.
                 </td>
               </tr>
             )}
@@ -832,13 +1085,92 @@ function StaffSummaryTable({
   );
 }
 
+function RemarkHistoryPanel({
+  histories,
+  profiles,
+}: {
+  histories: RemarkHistory[];
+  profiles: StaffProfile[];
+}) {
+  return (
+    <section className="rounded-md border border-line bg-white shadow-card">
+      <div className="border-b border-line p-5">
+        <h2 className="font-display text-xl font-bold">Remark update history</h2>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-line text-left text-sm">
+          <thead className="bg-mint text-xs uppercase tracking-[0.12em] text-ink/58">
+            <tr>
+              <th className="px-5 py-3">Changed at</th>
+              <th className="px-5 py-3">Updated by</th>
+              <th className="px-5 py-3">Staff</th>
+              <th className="px-5 py-3">Client</th>
+              <th className="px-5 py-3">Task</th>
+              <th className="px-5 py-3">Old remark</th>
+              <th className="px-5 py-3">New remark</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {histories.map((history) => {
+              const workStaff = profiles.find(
+                (staff) => staff.id === history.work_entries?.user_id,
+              );
+
+              return (
+                <tr key={history.id} className="align-top">
+                  <td className="whitespace-nowrap px-5 py-4 font-semibold">
+                    {new Intl.DateTimeFormat('en-IN', {
+                      day: '2-digit',
+                      month: 'short',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    }).format(new Date(history.changed_at))}
+                  </td>
+                  <td className="whitespace-nowrap px-5 py-4">
+                    {history.profiles?.full_name ?? 'User'}
+                  </td>
+                  <td className="whitespace-nowrap px-5 py-4">
+                    {workStaff?.full_name ?? 'Staff'}
+                  </td>
+                  <td className="px-5 py-4">
+                    {history.work_entries?.client_name ?? '-'}
+                  </td>
+                  <td className="min-w-64 px-5 py-4">
+                    {history.work_entries?.task ?? '-'}
+                  </td>
+                  <td className="min-w-56 px-5 py-4 text-ink/58">
+                    {history.old_remarks || '-'}
+                  </td>
+                  <td className="min-w-56 px-5 py-4 text-ink">
+                    {history.new_remarks || '-'}
+                  </td>
+                </tr>
+              );
+            })}
+            {histories.length === 0 && (
+              <tr>
+                <td className="px-5 py-8 text-center text-ink/60" colSpan={7}>
+                  No remark changes recorded yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function AdminWorkspace({
   entries,
   profiles,
+  remarkHistories,
   onStatusChange,
 }: {
   entries: WorkEntry[];
   profiles: StaffProfile[];
+  remarkHistories: RemarkHistory[];
   onStatusChange: (entryId: string, status: WorkEntry['status']) => void;
 }) {
   const [activeTab, setActiveTab] = useState<AdminTab>('today');
@@ -847,6 +1179,9 @@ function AdminWorkspace({
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [pendingDetailView, setPendingDetailView] = useState<PendingDetailView | null>(
+    null,
+  );
 
   const visibleEntries = useMemo(() => {
     return entries.filter((entry) => {
@@ -889,8 +1224,6 @@ function AdminWorkspace({
 
   return (
     <div className="grid gap-6">
-      <StaffTracker entries={entries} profiles={profiles} />
-
       <section className="rounded-md border border-line bg-white p-4 shadow-card">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex flex-wrap gap-2">
@@ -992,10 +1325,57 @@ function AdminWorkspace({
       </section>
 
       {activeTab === 'month' ? (
-        <MonthlySummary entries={entries} profiles={profiles} />
+        <>
+          <MonthlySummary entries={entries} profiles={profiles} />
+          <RemarkHistoryPanel histories={remarkHistories} profiles={profiles} />
+        </>
       ) : (
         <>
-          <StaffSummaryTable entries={visibleEntries} profiles={profiles} />
+          {activeTab === 'pending' && (
+            <div className="grid gap-4 md:grid-cols-2">
+              {[
+                { value: 'staff' as const, label: 'Pending by staff', icon: Users },
+                { value: 'client' as const, label: 'Pending by client', icon: FileText },
+              ].map(({ value, label, icon: Icon }) => {
+                const isActive = pendingDetailView === value;
+
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() =>
+                      setPendingDetailView((current) =>
+                        current === value ? null : value,
+                      )
+                    }
+                    className={`group rounded-md border bg-white p-5 text-left shadow-card transition hover:-translate-y-0.5 hover:border-forest hover:shadow-soft ${
+                      isActive ? 'border-forest ring-2 ring-forest/15' : 'border-line'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <p className="text-sm font-bold uppercase tracking-[0.12em] text-ink/52">
+                        {label}
+                      </p>
+                      <Icon className="text-forest" size={21} />
+                    </div>
+                    <p className="mt-3 text-xs font-bold uppercase tracking-[0.12em] text-forest">
+                      {isActive ? 'Hide details' : 'View details'}
+                      <span className="ml-2 inline-block transition group-hover:translate-x-1">
+                        &gt;
+                      </span>
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {activeTab === 'pending' && pendingDetailView && (
+            <PendingWorkSummary
+              entries={visibleEntries}
+              profiles={profiles}
+              view={pendingDetailView}
+            />
+          )}
           <EntriesTable
             title={reportTitle}
             entries={visibleEntries}
@@ -1003,9 +1383,330 @@ function AdminWorkspace({
             staffProfiles={profiles}
             onStatusChange={onStatusChange}
           />
+          <RemarkHistoryPanel histories={remarkHistories} profiles={profiles} />
         </>
       )}
     </div>
+  );
+}
+
+function PendingWorkSummary({
+  entries,
+  profiles,
+  view,
+}: {
+  entries: WorkEntry[];
+  profiles: StaffProfile[];
+  view: PendingDetailView;
+}) {
+  const pendingEntries = entries.filter((entry) => entry.status !== 'completed');
+  const staffRows = profiles
+    .filter((staff) => staff.role === 'staff')
+    .map((staff) => {
+      const staffPending = pendingEntries.filter((entry) => entry.user_id === staff.id);
+      const pendingDates = staffPending.map((entry) => entry.work_date).sort();
+      const clients = Array.from(
+        new Set(staffPending.map((entry) => entry.client_name.trim()).filter(Boolean)),
+      );
+      const pendingHours = staffPending.reduce(
+        (total, entry) => total + Number(entry.hours),
+        0,
+      );
+
+      return {
+        staff,
+        pendingEntries: staffPending,
+        pendingCount: staffPending.length,
+        pendingHours,
+        pendingFrom: pendingDates[0],
+        clients,
+        zeroHourCount: staffPending.filter((entry) => Number(entry.hours) === 0).length,
+      };
+    })
+    .filter((row) => row.pendingCount > 0)
+    .sort((a, b) => {
+      if (!a.pendingFrom || !b.pendingFrom) {
+        return b.pendingCount - a.pendingCount;
+      }
+
+      return a.pendingFrom.localeCompare(b.pendingFrom);
+    });
+  const clientRows = Array.from(
+    pendingEntries.reduce((clientMap, entry) => {
+      const clientName = entry.client_name.trim() || 'Unnamed client';
+      const current = clientMap.get(clientName) ?? [];
+      current.push(entry);
+      clientMap.set(clientName, current);
+      return clientMap;
+    }, new Map<string, WorkEntry[]>()),
+  )
+    .map(([clientName, clientEntries]) => {
+      const pendingDates = clientEntries.map((entry) => entry.work_date).sort();
+      const staffNames = Array.from(
+        new Set(clientEntries.map((entry) => getStaffName(entry, profiles))),
+      );
+      const pendingHours = clientEntries.reduce(
+        (total, entry) => total + Number(entry.hours),
+        0,
+      );
+
+      return {
+        clientName,
+        clientEntries,
+        pendingCount: clientEntries.length,
+        pendingFrom: pendingDates[0],
+        pendingHours,
+        staffNames,
+        zeroHourCount: clientEntries.filter((entry) => Number(entry.hours) === 0)
+          .length,
+      };
+    })
+    .sort((a, b) => {
+      if (!a.pendingFrom || !b.pendingFrom) {
+        return b.pendingCount - a.pendingCount;
+      }
+
+      return a.pendingFrom.localeCompare(b.pendingFrom);
+    });
+
+  return (
+    <div className="grid gap-6">
+      {view === 'staff' && (
+      <section className="rounded-md border border-line bg-white shadow-card">
+        <div className="border-b border-line p-5">
+          <h2 className="font-display text-xl font-bold">Pending work by staff</h2>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-line text-left text-sm">
+            <thead className="bg-mint text-xs uppercase tracking-[0.12em] text-ink/58">
+              <tr>
+                <th className="px-5 py-3">Staff</th>
+                <th className="px-5 py-3">Tasks</th>
+                <th className="px-5 py-3">From</th>
+                <th className="px-5 py-3">Hours</th>
+                <th className="px-5 py-3">Clients</th>
+                <th className="px-5 py-3">Oldest item</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {staffRows.map((row) => {
+                const oldestEntry = row.pendingEntries
+                  .slice()
+                  .sort((a, b) => a.work_date.localeCompare(b.work_date))[0];
+
+                return (
+                  <tr key={row.staff.id} className="align-top">
+                    <td className="whitespace-nowrap px-5 py-4 font-semibold">
+                      {row.staff.full_name}
+                    </td>
+                    <td className="px-5 py-4">{row.pendingCount}</td>
+                    <td className="whitespace-nowrap px-5 py-4">
+                      {row.pendingFrom ? formatDate(row.pendingFrom) : '-'}
+                    </td>
+                    <td className="px-5 py-4">{row.pendingHours}</td>
+                    <td className="min-w-44 px-5 py-4 text-ink/70">
+                      {row.clients.length > 0 ? row.clients.join(', ') : '-'}
+                    </td>
+                    <td className="min-w-64 px-5 py-4">
+                      {oldestEntry ? (
+                        <div>
+                          <p className="font-semibold text-ink">
+                            {oldestEntry.client_name}
+                          </p>
+                          <p className="mt-1 text-ink/68">{oldestEntry.task}</p>
+                          {row.zeroHourCount > 0 && (
+                            <p className="mt-1 text-xs font-bold uppercase tracking-[0.12em] text-forest">
+                              {row.zeroHourCount} zero-hour pending
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        '-'
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {staffRows.length === 0 && (
+                <tr>
+                  <td className="px-5 py-8 text-center text-ink/60" colSpan={6}>
+                    No pending work by staff.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      )}
+
+      {view === 'client' && (
+      <section className="rounded-md border border-line bg-white shadow-card">
+        <div className="border-b border-line p-5">
+          <h2 className="font-display text-xl font-bold">Pending work by client</h2>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-line text-left text-sm">
+            <thead className="bg-mint text-xs uppercase tracking-[0.12em] text-ink/58">
+              <tr>
+                <th className="px-5 py-3">Client</th>
+                <th className="px-5 py-3">Tasks</th>
+                <th className="px-5 py-3">From</th>
+                <th className="px-5 py-3">Hours</th>
+                <th className="px-5 py-3">Staff</th>
+                <th className="px-5 py-3">Oldest item</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {clientRows.map((row) => {
+                const oldestEntry = row.clientEntries
+                  .slice()
+                  .sort((a, b) => a.work_date.localeCompare(b.work_date))[0];
+
+                return (
+                  <tr key={row.clientName} className="align-top">
+                    <td className="whitespace-nowrap px-5 py-4 font-semibold">
+                      {row.clientName}
+                    </td>
+                    <td className="px-5 py-4">{row.pendingCount}</td>
+                    <td className="whitespace-nowrap px-5 py-4">
+                      {row.pendingFrom ? formatDate(row.pendingFrom) : '-'}
+                    </td>
+                    <td className="px-5 py-4">{row.pendingHours}</td>
+                    <td className="min-w-44 px-5 py-4 text-ink/70">
+                      {row.staffNames.join(', ')}
+                    </td>
+                    <td className="min-w-64 px-5 py-4">
+                      {oldestEntry ? (
+                        <div>
+                          <p className="font-semibold text-ink">
+                            {getStaffName(oldestEntry, profiles)}
+                          </p>
+                          <p className="mt-1 text-ink/68">{oldestEntry.task}</p>
+                          {row.zeroHourCount > 0 && (
+                            <p className="mt-1 text-xs font-bold uppercase tracking-[0.12em] text-forest">
+                              {row.zeroHourCount} zero-hour pending
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        '-'
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {clientRows.length === 0 && (
+                <tr>
+                  <td className="px-5 py-8 text-center text-ink/60" colSpan={6}>
+                    No pending work by client.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      )}
+    </div>
+  );
+}
+
+function CompletedTodaySummary({
+  entries,
+  profiles,
+}: {
+  entries: WorkEntry[];
+  profiles: StaffProfile[];
+}) {
+  const completedEntries = entries.filter(
+    (entry) => entry.work_date === today && entry.status === 'completed',
+  );
+  const rows = profiles
+    .filter((staff) => staff.role === 'staff')
+    .map((staff) => {
+      const staffCompleted = completedEntries.filter(
+        (entry) => entry.user_id === staff.id,
+      );
+      const clients = Array.from(
+        new Set(staffCompleted.map((entry) => entry.client_name.trim()).filter(Boolean)),
+      );
+      const totalHours = staffCompleted.reduce(
+        (total, entry) => total + Number(entry.hours),
+        0,
+      );
+
+      return {
+        staff,
+        completedEntries: staffCompleted,
+        completedCount: staffCompleted.length,
+        totalHours,
+        clients,
+      };
+    })
+    .filter((row) => row.completedCount > 0)
+    .sort((a, b) => b.completedCount - a.completedCount);
+
+  return (
+    <section className="rounded-md border border-line bg-white shadow-card">
+      <div className="border-b border-line p-5">
+        <h2 className="font-display text-xl font-bold">Completed today by staff</h2>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-line text-left text-sm">
+          <thead className="bg-mint text-xs uppercase tracking-[0.12em] text-ink/58">
+            <tr>
+              <th className="px-5 py-3">Staff</th>
+              <th className="px-5 py-3">Completed tasks</th>
+              <th className="px-5 py-3">Hours</th>
+              <th className="px-5 py-3">Clients</th>
+              <th className="px-5 py-3">Completed items</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {rows.map((row) => (
+              <tr key={row.staff.id} className="align-top">
+                <td className="whitespace-nowrap px-5 py-4 font-semibold">
+                  {row.staff.full_name}
+                </td>
+                <td className="px-5 py-4">{row.completedCount}</td>
+                <td className="px-5 py-4">{row.totalHours}</td>
+                <td className="min-w-48 px-5 py-4 text-ink/70">
+                  {row.clients.length > 0 ? row.clients.join(', ') : '-'}
+                </td>
+                <td className="min-w-80 px-5 py-4">
+                  <div className="grid gap-3">
+                    {row.completedEntries.slice(0, 4).map((entry) => (
+                      <div key={entry.id}>
+                        <p className="font-semibold text-ink">{entry.client_name}</p>
+                        <p className="mt-1 text-ink/68">{entry.task}</p>
+                        {entry.remarks && (
+                          <p className="mt-1 text-xs font-semibold text-ink/52">
+                            {entry.remarks}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                    {row.completedEntries.length > 4 && (
+                      <p className="text-xs font-bold uppercase tracking-[0.12em] text-forest">
+                        +{row.completedEntries.length - 4} more completed items
+                      </p>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr>
+                <td className="px-5 py-8 text-center text-ink/60" colSpan={5}>
+                  No completed work recorded for today.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -1018,14 +1719,42 @@ function AdminOverview({
   profiles: StaffProfile[];
   onStatusChange: (entryId: string, status: WorkEntry['status']) => void;
 }) {
+  const [showStaffTracker, setShowStaffTracker] = useState(false);
+  const [showNotReported, setShowNotReported] = useState(false);
+  const [showPendingWork, setShowPendingWork] = useState(false);
+  const [showCompletedSummary, setShowCompletedSummary] = useState(false);
   const todaysEntries = entries.filter((entry) => entry.work_date === today);
   const pendingEntries = entries.filter((entry) => entry.status !== 'completed');
 
   return (
     <div className="grid gap-6">
-      <AdminSummaryCards entries={entries} profiles={profiles} />
-      <StaffTracker entries={entries} profiles={profiles} />
-      <div className="grid gap-6 xl:grid-cols-2">
+      <AdminSummaryCards
+        entries={entries}
+        profiles={profiles}
+        reportedExpanded={showStaffTracker}
+        notReportedExpanded={showNotReported}
+        pendingExpanded={showPendingWork}
+        completedExpanded={showCompletedSummary}
+        onReportedClick={() => setShowStaffTracker((current) => !current)}
+        onNotReportedClick={() => setShowNotReported((current) => !current)}
+        onPendingClick={() => setShowPendingWork((current) => !current)}
+        onCompletedClick={() => setShowCompletedSummary((current) => !current)}
+      />
+      {showCompletedSummary && (
+        <CompletedTodaySummary entries={entries} profiles={profiles} />
+      )}
+      {showStaffTracker && <StaffTracker entries={entries} profiles={profiles} />}
+      {showNotReported && <NotReportedStaff entries={entries} profiles={profiles} />}
+      {showPendingWork && (
+        <EntriesTable
+          title="All pending work"
+          entries={pendingEntries}
+          isAdmin
+          staffProfiles={profiles}
+          onStatusChange={onStatusChange}
+        />
+      )}
+      <div className="grid gap-6">
         <EntriesTable
           title="Today's work"
           entries={todaysEntries}
@@ -1048,10 +1777,39 @@ function AdminOverview({
 function Dashboard({ session, profile }: { session: Session; profile: StaffProfile }) {
   const [entries, setEntries] = useState<WorkEntry[]>([]);
   const [profiles, setProfiles] = useState<StaffProfile[]>([]);
+  const [remarkHistories, setRemarkHistories] = useState<RemarkHistory[]>([]);
   const [adminMode, setAdminMode] = useState<'overview' | 'details'>('overview');
+  const [staffQuickFilter, setStaffQuickFilter] = useState<StaffQuickFilter>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const isAdmin = profile.role === 'admin';
+
+  const staffVisibleEntries = useMemo(() => {
+    if (staffQuickFilter === 'today') {
+      return entries.filter((entry) => entry.work_date === today);
+    }
+
+    if (staffQuickFilter === 'pending') {
+      return entries.filter((entry) => entry.status !== 'completed');
+    }
+
+    if (staffQuickFilter === 'completed_month') {
+      return entries.filter(
+        (entry) => isThisMonth(entry.work_date) && entry.status === 'completed',
+      );
+    }
+
+    return entries;
+  }, [entries, staffQuickFilter]);
+
+  const staffHistoryTitle =
+    staffQuickFilter === 'today'
+      ? "Today's entries"
+      : staffQuickFilter === 'pending'
+        ? 'Pending tasks'
+        : staffQuickFilter === 'completed_month'
+          ? 'Completed this month'
+          : 'Your work history';
 
   async function loadEntries() {
     setLoading(true);
@@ -1082,6 +1840,20 @@ function Dashboard({ session, profile }: { session: Session; profile: StaffProfi
       } else {
         setProfiles((profileData ?? []) as StaffProfile[]);
       }
+
+      const { data: historyData, error: historyQueryError } = await supabase
+        .from('remark_history')
+        .select('*, profiles(full_name), work_entries(client_name, task, work_date, user_id)')
+        .order('changed_at', { ascending: false })
+        .limit(100);
+
+      if (historyQueryError) {
+        setError((current) =>
+          current ? `${current} ${historyQueryError.message}` : historyQueryError.message,
+        );
+      } else {
+        setRemarkHistories((historyData ?? []) as RemarkHistory[]);
+      }
     }
 
     setLoading(false);
@@ -1101,6 +1873,29 @@ function Dashboard({ session, profile }: { session: Session; profile: StaffProfi
     if (updateError) {
       setEntries(previousEntries);
       setError(updateError.message);
+    }
+  }
+
+  async function handleRemarksChange(entryId: string, remarks: string) {
+    const normalizedRemarks = remarks.trim() || null;
+    const previousEntries = entries;
+
+    setEntries((current) =>
+      current.map((entry) =>
+        entry.id === entryId ? { ...entry, remarks: normalizedRemarks } : entry,
+      ),
+    );
+
+    const { error: updateError } = await supabase
+      .from('work_entries')
+      .update({ remarks: normalizedRemarks })
+      .eq('id', entryId);
+
+    if (updateError) {
+      setEntries(previousEntries);
+      setError(updateError.message);
+    } else if (isAdmin) {
+      loadEntries();
     }
   }
 
@@ -1164,7 +1959,12 @@ function Dashboard({ session, profile }: { session: Session; profile: StaffProfi
           </div>
         ) : (
           <>
-            <SummaryCards entries={entries} isAdmin={isAdmin} />
+            <SummaryCards
+              entries={entries}
+              isAdmin={isAdmin}
+              activeFilter={staffQuickFilter}
+              onFilterChange={setStaffQuickFilter}
+            />
             <EntryFormCard onSaved={loadEntries} />
           </>
         )}
@@ -1187,14 +1987,16 @@ function Dashboard({ session, profile }: { session: Session; profile: StaffProfi
           <AdminWorkspace
             entries={entries}
             profiles={profiles}
+            remarkHistories={remarkHistories}
             onStatusChange={handleStatusChange}
           />
         ) : (
           <EntriesTable
-            title="Your work history"
-            entries={entries}
+            title={staffHistoryTitle}
+            entries={staffVisibleEntries}
             isAdmin={false}
             onStatusChange={handleStatusChange}
+            onRemarksChange={handleRemarksChange}
           />
         )}
       </div>

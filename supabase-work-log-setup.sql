@@ -25,8 +25,19 @@ create table public.work_entries (
   updated_at timestamptz not null default now()
 );
 
+create table public.remark_history (
+  id uuid primary key default gen_random_uuid(),
+  work_entry_id uuid not null references public.work_entries(id) on delete cascade,
+  editor_user_id uuid references public.profiles(id) on delete set null,
+  old_remarks text,
+  new_remarks text,
+  changed_at timestamptz not null default now()
+);
+
 create index work_entries_user_id_idx on public.work_entries(user_id);
 create index work_entries_work_date_idx on public.work_entries(work_date desc);
+create index remark_history_work_entry_id_idx on public.remark_history(work_entry_id);
+create index remark_history_changed_at_idx on public.remark_history(changed_at desc);
 
 -- If you created the table earlier with hours > 0, run these two lines once.
 alter table public.work_entries drop constraint if exists work_entries_hours_check;
@@ -71,6 +82,37 @@ create trigger work_entries_set_updated_at
 before update on public.work_entries
 for each row execute function public.set_updated_at();
 
+create or replace function public.record_remark_history()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if old.remarks is distinct from new.remarks then
+    insert into public.remark_history (
+      work_entry_id,
+      editor_user_id,
+      old_remarks,
+      new_remarks
+    )
+    values (
+      old.id,
+      (select auth.uid()),
+      old.remarks,
+      new.remarks
+    );
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists work_entries_record_remark_history on public.work_entries;
+create trigger work_entries_record_remark_history
+after update of remarks on public.work_entries
+for each row execute function public.record_remark_history();
+
 create or replace function private.is_admin()
 returns boolean
 language sql
@@ -87,6 +129,7 @@ $$;
 
 alter table public.profiles enable row level security;
 alter table public.work_entries enable row level security;
+alter table public.remark_history enable row level security;
 
 create policy "Users can read own profile and admins can read all profiles"
 on public.profiles
@@ -129,5 +172,11 @@ with check ((select auth.uid()) = user_id or private.is_admin());
 create policy "Admins can delete work"
 on public.work_entries
 for delete
+to authenticated
+using (private.is_admin());
+
+create policy "Admins can read remark history"
+on public.remark_history
+for select
 to authenticated
 using (private.is_admin());
