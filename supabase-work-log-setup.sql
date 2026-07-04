@@ -18,7 +18,7 @@ create table public.work_entries (
   work_date date not null default current_date,
   client_name text not null,
   task text not null,
-  hours numeric(5, 2) not null check (hours > 0),
+  hours numeric(5, 2) not null check (hours >= 0),
   status public.work_status not null default 'in_progress',
   remarks text,
   created_at timestamptz not null default now(),
@@ -27,6 +27,10 @@ create table public.work_entries (
 
 create index work_entries_user_id_idx on public.work_entries(user_id);
 create index work_entries_work_date_idx on public.work_entries(work_date desc);
+
+-- If you created the table earlier with hours > 0, run these two lines once.
+alter table public.work_entries drop constraint if exists work_entries_hours_check;
+alter table public.work_entries add constraint work_entries_hours_check check (hours >= 0);
 
 create or replace function public.handle_new_user()
 returns trigger
