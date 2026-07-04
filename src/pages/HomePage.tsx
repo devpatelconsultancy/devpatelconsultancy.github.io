@@ -111,63 +111,61 @@ function Nav() {
   const links = ['Services', 'Expertise', 'Process', 'Contact'];
 
   return (
-    <header className="fixed inset-x-0 top-0 z-50 border-b border-line/80 bg-white/95 shadow-[0_14px_48px_rgba(20,33,38,0.07)] backdrop-blur-xl">
-      <nav
-        aria-label="Primary navigation"
-        className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-3 lg:px-8"
-      >
-        <a href="#top" className="flex min-w-0 items-center gap-3">
-          <span className="grid h-12 w-28 shrink-0 place-items-center rounded-md border border-line bg-white px-2 shadow-[0_10px_30px_rgba(20,33,38,0.06)] sm:w-32">
-            <img
-              src={logoSrc}
-              alt="Dev Patel & Associates logo"
-              className="max-h-10 w-full object-contain"
-            />
-          </span>
-          <span className="hidden min-w-0 md:block">
-            <span className="block truncate font-display text-base font-extrabold text-ink">
-              Dev Patel & Associates
-            </span>
-            <span className="block text-xs font-bold uppercase tracking-[0.14em] text-teal">
-              Tax & Compliance Consultants
-            </span>
-          </span>
-        </a>
-        <div className="hidden items-center rounded-full border border-line bg-ivory/80 px-1.5 py-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] lg:flex">
-          {links.map((link) => (
-            <a
-              key={link}
-              href={`#${link.toLowerCase()}`}
-              className="rounded-full px-4 py-2 text-sm font-bold text-ink/72 transition hover:bg-white hover:text-forest hover:shadow-card"
-            >
-              {link}
-            </a>
-          ))}
-        </div>
-        <a
-          href={phoneHref}
-          aria-label="Call Dev Patel and Associates"
-          className="hidden items-center gap-2 rounded-md bg-forest px-5 py-3 text-sm font-bold text-white shadow-card transition hover:-translate-y-0.5 hover:bg-teal lg:inline-flex"
+    <>
+      <header className="fixed inset-x-0 top-0 z-50 border-b border-line/80 bg-white/95 shadow-[0_14px_48px_rgba(20,33,38,0.07)] backdrop-blur-xl">
+        <nav
+          aria-label="Primary navigation"
+          className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-3 lg:px-8"
         >
-          Call Us
-          <Phone size={17} />
-        </a>
-        <button
-          aria-label="Open navigation"
-          aria-expanded={open}
-          className="grid size-11 place-items-center rounded-md border border-line bg-white text-ink lg:hidden"
-          onClick={() => setOpen(true)}
-        >
-          <Menu size={22} />
-        </button>
-      </nav>
-      {open && (
-        <div className="fixed inset-0 z-50 bg-ink/45 lg:hidden">
-          <div
-            aria-modal="true"
-            role="dialog"
-            className="ml-auto h-full min-w-[280px] max-w-sm bg-white p-5 shadow-soft"
+          <a href="#top" className="flex min-w-0 items-center gap-3">
+            <span className="grid h-12 w-28 shrink-0 place-items-center rounded-md border border-line bg-white px-2 shadow-[0_10px_30px_rgba(20,33,38,0.06)] sm:w-32">
+              <img
+                src={logoSrc}
+                alt="Dev Patel & Associates logo"
+                className="max-h-10 w-full object-contain"
+              />
+            </span>
+            <span className="hidden min-w-0 md:block">
+              <span className="block truncate font-display text-base font-extrabold text-ink">
+                Dev Patel & Associates
+              </span>
+              <span className="block text-xs font-bold uppercase tracking-[0.14em] text-teal">
+                Tax & Compliance Consultants
+              </span>
+            </span>
+          </a>
+          <div className="hidden items-center rounded-full border border-line bg-ivory/80 px-1.5 py-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] lg:flex">
+            {links.map((link) => (
+              <a
+                key={link}
+                href={`#${link.toLowerCase()}`}
+                className="rounded-full px-4 py-2 text-sm font-bold text-ink/72 transition hover:bg-white hover:text-forest hover:shadow-card"
+              >
+                {link}
+              </a>
+            ))}
+          </div>
+          <a
+            href={phoneHref}
+            aria-label="Call Dev Patel and Associates"
+            className="hidden items-center gap-2 rounded-md bg-forest px-5 py-3 text-sm font-bold text-white shadow-card transition hover:-translate-y-0.5 hover:bg-teal lg:inline-flex"
           >
+            Call Us
+            <Phone size={17} />
+          </a>
+          <button
+            aria-label="Open navigation"
+            aria-expanded={open}
+            className="grid size-11 place-items-center rounded-md border border-line bg-white text-ink lg:hidden"
+            onClick={() => setOpen(true)}
+          >
+            <Menu size={22} />
+          </button>
+        </nav>
+      </header>
+      {open && (
+        <div className="fixed inset-0 z-[60] bg-white lg:hidden">
+          <div aria-modal="true" role="dialog" className="min-h-svh bg-white p-5">
             <div className="flex items-center justify-between">
               <span className="font-display text-lg font-bold text-ink">Menu</span>
               <button
@@ -200,7 +198,7 @@ function Nav() {
           </div>
         </div>
       )}
-    </header>
+    </>
   );
 }
 
