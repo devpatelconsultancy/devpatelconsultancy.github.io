@@ -21,6 +21,26 @@ export type WorkEntry = {
   profiles?: Pick<StaffProfile, 'full_name'> | null;
 };
 
+export type ClientStatus =
+  | 'quotation_sent'
+  | 'active'
+  | 'completed'
+  | 'on_hold'
+  | 'lost';
+
+export type ClientRecord = {
+  id: string;
+  client_name: string;
+  work: string;
+  registered_date: string;
+  quotation: string;
+  status: ClientStatus;
+  remarks: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type RemarkHistory = {
   id: string;
   work_entry_id: string;

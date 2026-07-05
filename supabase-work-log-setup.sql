@@ -4,6 +4,13 @@ create schema if not exists private;
 
 create type public.user_role as enum ('admin', 'staff');
 create type public.work_status as enum ('pending', 'in_progress', 'completed');
+create type public.client_status as enum (
+  'quotation_sent',
+  'active',
+  'completed',
+  'on_hold',
+  'lost'
+);
 
 create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -25,6 +32,19 @@ create table public.work_entries (
   updated_at timestamptz not null default now()
 );
 
+create table public.clients (
+  id uuid primary key default gen_random_uuid(),
+  client_name text not null,
+  work text not null,
+  registered_date date not null default current_date,
+  quotation text not null,
+  status public.client_status not null default 'quotation_sent',
+  remarks text,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table public.remark_history (
   id uuid primary key default gen_random_uuid(),
   work_entry_id uuid not null references public.work_entries(id) on delete cascade,
@@ -36,6 +56,8 @@ create table public.remark_history (
 
 create index work_entries_user_id_idx on public.work_entries(user_id);
 create index work_entries_work_date_idx on public.work_entries(work_date desc);
+create index clients_registered_date_idx on public.clients(registered_date desc);
+create index clients_status_idx on public.clients(status);
 create index remark_history_work_entry_id_idx on public.remark_history(work_entry_id);
 create index remark_history_changed_at_idx on public.remark_history(changed_at desc);
 
@@ -80,6 +102,10 @@ $$;
 
 create trigger work_entries_set_updated_at
 before update on public.work_entries
+for each row execute function public.set_updated_at();
+
+create trigger clients_set_updated_at
+before update on public.clients
 for each row execute function public.set_updated_at();
 
 create or replace function public.record_remark_history()
@@ -129,6 +155,7 @@ $$;
 
 alter table public.profiles enable row level security;
 alter table public.work_entries enable row level security;
+alter table public.clients enable row level security;
 alter table public.remark_history enable row level security;
 
 create policy "Users can read own profile and admins can read all profiles"
@@ -150,6 +177,8 @@ to authenticated
 using ((select auth.uid()) = id)
 with check ((select auth.uid()) = id and role = 'staff');
 
+-- Reset in case an older permissive policy exists in Supabase.
+drop policy if exists "Users can read own work and admins can read all work" on public.work_entries;
 create policy "Users can read own work and admins can read all work"
 on public.work_entries
 for select
@@ -171,6 +200,31 @@ with check ((select auth.uid()) = user_id or private.is_admin());
 
 create policy "Admins can delete work"
 on public.work_entries
+for delete
+to authenticated
+using (private.is_admin());
+
+create policy "Admins can read clients"
+on public.clients
+for select
+to authenticated
+using (private.is_admin());
+
+create policy "Admins can insert clients"
+on public.clients
+for insert
+to authenticated
+with check (private.is_admin());
+
+create policy "Admins can update clients"
+on public.clients
+for update
+to authenticated
+using (private.is_admin())
+with check (private.is_admin());
+
+create policy "Admins can delete clients"
+on public.clients
 for delete
 to authenticated
 using (private.is_admin());

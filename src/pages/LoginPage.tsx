@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
+  ClientRecord,
   hasSupabaseConfig,
   RemarkHistory,
   StaffProfile,
@@ -26,6 +27,7 @@ import {
 
 type AuthMode = 'login' | 'signup';
 type AdminTab = 'today' | 'pending' | 'month' | 'history';
+type AdminMode = 'overview' | 'details' | 'clients';
 type StatusFilter = WorkEntry['status'] | 'all';
 type StaffQuickFilter = 'all' | 'today' | 'pending' | 'completed_month';
 type PendingDetailView = 'staff' | 'client';
@@ -36,6 +38,15 @@ type EntryForm = {
   task: string;
   hours: string;
   status: WorkEntry['status'];
+  remarks: string;
+};
+
+type ClientForm = {
+  client_name: string;
+  work: string;
+  registered_date: string;
+  quotation: string;
+  status: ClientRecord['status'];
   remarks: string;
 };
 
@@ -54,6 +65,23 @@ const statusLabels: Record<WorkEntry['status'], string> = {
   pending: 'Pending',
   in_progress: 'In progress',
   completed: 'Completed',
+};
+
+const clientStatusLabels: Record<ClientRecord['status'], string> = {
+  quotation_sent: 'Quotation sent',
+  active: 'Active',
+  completed: 'Completed',
+  on_hold: 'On hold',
+  lost: 'Lost',
+};
+
+const emptyClientForm: ClientForm = {
+  client_name: '',
+  work: '',
+  registered_date: today,
+  quotation: '',
+  status: 'quotation_sent',
+  remarks: '',
 };
 
 const adminTabs: Array<{ id: AdminTab; label: string }> = [
@@ -95,6 +123,48 @@ function downloadCsv(entries: WorkEntry[], fileLabel = 'work-report') {
   const link = document.createElement('a');
   link.href = url;
   link.download = `${fileLabel}-${today}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function excelEscape(value: string | number | null | undefined) {
+  const text = value == null ? '' : String(value);
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function downloadClientsExcel(clients: ClientRecord[], fileLabel = 'clients') {
+  const header = [
+    'Client Name',
+    'Work',
+    'Registered Date',
+    'Quotation',
+    'Status',
+    'Remarks',
+  ];
+  const rows = clients.map((client) => [
+    client.client_name,
+    client.work,
+    client.registered_date,
+    client.quotation,
+    clientStatusLabels[client.status],
+    client.remarks ?? '',
+  ]);
+  const tableRows = [header, ...rows]
+    .map(
+      (row) =>
+        `<tr>${row.map((cell) => `<td>${excelEscape(cell)}</td>`).join('')}</tr>`,
+    )
+    .join('');
+  const workbook = `<html><head><meta charset="UTF-8"></head><body><table>${tableRows}</table></body></html>`;
+  const blob = new Blob([workbook], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${fileLabel}-${today}.xls`;
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -1162,6 +1232,248 @@ function RemarkHistoryPanel({
   );
 }
 
+function ClientsPanel({
+  clients,
+  setupError,
+  onClientSaved,
+}: {
+  clients: ClientRecord[];
+  setupError: string;
+  onClientSaved: () => Promise<void>;
+}) {
+  const [form, setForm] = useState<ClientForm>(emptyClientForm);
+  const [showForm, setShowForm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage('');
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      setMessage('Please login again before adding a client.');
+      setBusy(false);
+      return;
+    }
+
+    const { error } = await supabase.from('clients').insert({
+      client_name: form.client_name.trim(),
+      work: form.work.trim(),
+      registered_date: form.registered_date,
+      quotation: form.quotation.trim(),
+      status: form.status,
+      remarks: form.remarks.trim() || null,
+      created_by: user.id,
+    });
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      setForm(emptyClientForm);
+      setMessage('Client added.');
+      setShowForm(false);
+      window.setTimeout(() => setMessage(''), 3000);
+      await onClientSaved();
+    }
+
+    setBusy(false);
+  }
+
+  return (
+    <div className="grid gap-6">
+      <section className="rounded-md border border-line bg-white p-5 shadow-card">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <span className="grid size-10 place-items-center rounded-md bg-mint text-forest">
+              <Plus size={20} />
+            </span>
+            <h2 className="font-display text-xl font-bold">Clients</h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setMessage('');
+              setShowForm((current) => !current);
+            }}
+            className="inline-flex items-center justify-center gap-2 rounded-md bg-forest px-5 py-3 font-bold text-white transition hover:bg-teal"
+          >
+            <Plus size={18} />
+            {showForm ? 'Hide form' : 'Add client'}
+          </button>
+        </div>
+        {showForm && (
+          <form className="mt-5 grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
+            <label className="grid gap-2 text-sm font-bold">
+              Client name
+              <input
+                required
+                value={form.client_name}
+                onChange={(event) =>
+                  setForm({ ...form, client_name: event.target.value })
+                }
+                className="rounded-md border border-line px-4 py-3 font-normal"
+              />
+            </label>
+            <label className="grid gap-2 text-sm font-bold">
+              Registered date
+              <input
+                required
+                type="date"
+                value={form.registered_date}
+                onChange={(event) =>
+                  setForm({ ...form, registered_date: event.target.value })
+                }
+                className="rounded-md border border-line px-4 py-3 font-normal"
+              />
+            </label>
+            <label className="grid gap-2 text-sm font-bold md:col-span-2">
+              Work
+              <input
+                required
+                value={form.work}
+                onChange={(event) => setForm({ ...form, work: event.target.value })}
+                className="rounded-md border border-line px-4 py-3 font-normal"
+              />
+            </label>
+            <label className="grid gap-2 text-sm font-bold">
+              Quotation
+              <input
+                required
+                value={form.quotation}
+                onChange={(event) => setForm({ ...form, quotation: event.target.value })}
+                className="rounded-md border border-line px-4 py-3 font-normal"
+              />
+            </label>
+            <label className="grid gap-2 text-sm font-bold">
+              Status
+              <select
+                value={form.status}
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    status: event.target.value as ClientRecord['status'],
+                  })
+                }
+                className="rounded-md border border-line px-4 py-3 font-normal"
+              >
+                {Object.entries(clientStatusLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-2 text-sm font-bold md:col-span-2">
+              Remarks
+              <textarea
+                rows={3}
+                value={form.remarks}
+                onChange={(event) => setForm({ ...form, remarks: event.target.value })}
+                className="rounded-md border border-line px-4 py-3 font-normal"
+              />
+            </label>
+            <div className="flex flex-wrap items-center gap-3 md:col-span-2">
+              <button
+                disabled={busy}
+                className="rounded-md bg-forest px-5 py-3 font-bold text-white transition hover:bg-teal disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {busy ? 'Saving...' : 'Save client'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMessage('');
+                  setShowForm(false);
+                }}
+                className="rounded-md border border-line px-5 py-3 font-bold text-ink transition hover:border-forest"
+              >
+                Cancel
+              </button>
+              {message && (
+                <p className="text-sm font-semibold text-ink/70">{message}</p>
+              )}
+            </div>
+          </form>
+        )}
+        {!showForm && message && (
+          <p className="mt-3 text-sm font-semibold text-ink/70">{message}</p>
+        )}
+      </section>
+
+      {setupError && (
+        <p className="rounded-md border border-line bg-white p-4 font-semibold text-ink/70">
+          The Clients database table is not set up yet. Run
+          `supabase-clients-setup.sql` in Supabase SQL Editor, then refresh this
+          dashboard.
+        </p>
+      )}
+
+      <section className="rounded-md border border-line bg-white shadow-card">
+        <div className="flex flex-col gap-3 border-b border-line p-5 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="font-display text-xl font-bold">Client entries</h2>
+          <button
+            type="button"
+            onClick={() => downloadClientsExcel(clients)}
+            className="inline-flex items-center justify-center gap-2 rounded-md border border-line px-4 py-3 font-bold text-forest transition hover:border-forest"
+          >
+            <Download size={18} />
+            Export to Excel
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-line text-left text-sm">
+            <thead className="bg-mint text-xs uppercase tracking-[0.12em] text-ink/58">
+              <tr>
+                <th className="px-5 py-3">Client name</th>
+                <th className="px-5 py-3">Work</th>
+                <th className="px-5 py-3">Registered date</th>
+                <th className="px-5 py-3">Quotation</th>
+                <th className="px-5 py-3">Status</th>
+                <th className="px-5 py-3">Remarks</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {clients.map((client) => (
+                <tr key={client.id} className="align-top">
+                  <td className="whitespace-nowrap px-5 py-4 font-semibold">
+                    {client.client_name}
+                  </td>
+                  <td className="min-w-64 px-5 py-4">{client.work}</td>
+                  <td className="whitespace-nowrap px-5 py-4">
+                    {formatDate(client.registered_date)}
+                  </td>
+                  <td className="whitespace-nowrap px-5 py-4">{client.quotation}</td>
+                  <td className="whitespace-nowrap px-5 py-4">
+                    <span className="rounded-full bg-mint px-3 py-1 text-xs font-bold text-forest">
+                      {clientStatusLabels[client.status]}
+                    </span>
+                  </td>
+                  <td className="min-w-72 px-5 py-4 text-ink/68">
+                    {client.remarks || '-'}
+                  </td>
+                </tr>
+              ))}
+              {clients.length === 0 && (
+                <tr>
+                  <td className="px-5 py-8 text-center text-ink/60" colSpan={6}>
+                    No clients added yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function AdminWorkspace({
   entries,
   profiles,
@@ -1777,11 +2089,13 @@ function AdminOverview({
 function Dashboard({ session, profile }: { session: Session; profile: StaffProfile }) {
   const [entries, setEntries] = useState<WorkEntry[]>([]);
   const [profiles, setProfiles] = useState<StaffProfile[]>([]);
+  const [clients, setClients] = useState<ClientRecord[]>([]);
   const [remarkHistories, setRemarkHistories] = useState<RemarkHistory[]>([]);
-  const [adminMode, setAdminMode] = useState<'overview' | 'details'>('overview');
+  const [adminMode, setAdminMode] = useState<AdminMode>('overview');
   const [staffQuickFilter, setStaffQuickFilter] = useState<StaffQuickFilter>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [clientSetupError, setClientSetupError] = useState('');
   const isAdmin = profile.role === 'admin';
 
   const staffVisibleEntries = useMemo(() => {
@@ -1811,15 +2125,41 @@ function Dashboard({ session, profile }: { session: Session; profile: StaffProfi
           ? 'Completed this month'
           : 'Your work history';
 
+  async function loadClients() {
+    if (!isAdmin) {
+      return;
+    }
+
+    const { data, error: clientsQueryError } = await supabase
+      .from('clients')
+      .select('*')
+      .order('registered_date', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    if (clientsQueryError) {
+      setClientSetupError(clientsQueryError.message);
+      setClients([]);
+    } else {
+      setClientSetupError('');
+      setClients((data ?? []) as ClientRecord[]);
+    }
+  }
+
   async function loadEntries() {
     setLoading(true);
     setError('');
 
-    const { data: entryData, error: queryError } = await supabase
+    let entriesQuery = supabase
       .from('work_entries')
       .select('*, profiles(full_name)')
       .order('work_date', { ascending: false })
       .order('created_at', { ascending: false });
+
+    if (!isAdmin) {
+      entriesQuery = entriesQuery.eq('user_id', session.user.id);
+    }
+
+    const { data: entryData, error: queryError } = await entriesQuery;
 
     if (queryError) {
       setError(queryError.message);
@@ -1854,6 +2194,8 @@ function Dashboard({ session, profile }: { session: Session; profile: StaffProfi
       } else {
         setRemarkHistories((historyData ?? []) as RemarkHistory[]);
       }
+
+      await loadClients();
     }
 
     setLoading(false);
@@ -1942,11 +2284,12 @@ function Dashboard({ session, profile }: { session: Session; profile: StaffProfi
             {[
               ['overview', 'Overview'],
               ['details', 'Detailed reports'],
+              ['clients', 'Clients'],
             ].map(([value, label]) => (
               <button
                 key={value}
                 type="button"
-                onClick={() => setAdminMode(value as 'overview' | 'details')}
+                onClick={() => setAdminMode(value as AdminMode)}
                 className={`rounded-md px-4 py-3 font-bold transition ${
                   adminMode === value
                     ? 'bg-forest text-white'
@@ -1982,6 +2325,12 @@ function Dashboard({ session, profile }: { session: Session; profile: StaffProfi
             entries={entries}
             profiles={profiles}
             onStatusChange={handleStatusChange}
+          />
+        ) : isAdmin && adminMode === 'clients' ? (
+          <ClientsPanel
+            clients={clients}
+            setupError={clientSetupError}
+            onClientSaved={loadClients}
           />
         ) : isAdmin ? (
           <AdminWorkspace
