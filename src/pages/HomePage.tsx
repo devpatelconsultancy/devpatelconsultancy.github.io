@@ -644,9 +644,6 @@ export default function HomePage() {
             </div>
             <div className="grid gap-1 text-sm text-white/58 md:text-right">
               <p>Tax, Compliance & Business Advisory Services in Mumbai</p>
-              <a href={emailHref} className="transition hover:text-white">
-                {email}
-              </a>
             </div>
           </div>
         </footer>
