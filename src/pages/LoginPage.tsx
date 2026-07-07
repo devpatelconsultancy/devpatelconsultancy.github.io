@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   Clock3,
   Download,
+  Pencil,
   FileText,
   Filter,
   ListChecks,
@@ -11,9 +12,11 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Trash2,
   UserCheck,
   UserX,
   Users,
+  X,
 } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
@@ -1249,8 +1252,60 @@ function ClientsPanel({
 }) {
   const [form, setForm] = useState<ClientForm>(emptyClientForm);
   const [showForm, setShowForm] = useState(false);
+  const [editingClientId, setEditingClientId] = useState<string | null>(null);
+  const [deletingClientId, setDeletingClientId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+
+  function resetForm() {
+    setForm(emptyClientForm);
+    setEditingClientId(null);
+  }
+
+  function startAddClient() {
+    setMessage('');
+    resetForm();
+    setShowForm((current) => !current);
+  }
+
+  function startEditClient(client: ClientRecord) {
+    setMessage('');
+    setForm({
+      client_name: client.client_name,
+      work: client.work,
+      registered_date: client.registered_date,
+      quotation: client.quotation,
+      status: client.status,
+      remarks: client.remarks ?? '',
+    });
+    setEditingClientId(client.id);
+    setShowForm(true);
+  }
+
+  async function handleDeleteClient(client: ClientRecord) {
+    const confirmed = window.confirm(
+      `Delete client "${client.client_name}"? This cannot be undone.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingClientId(client.id);
+    setMessage('');
+
+    const { error } = await supabase.from('clients').delete().eq('id', client.id);
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      setMessage('Client deleted.');
+      window.setTimeout(() => setMessage(''), 3000);
+      await onClientSaved();
+    }
+
+    setDeletingClientId(null);
+  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -1268,21 +1323,28 @@ function ClientsPanel({
       return;
     }
 
-    const { error } = await supabase.from('clients').insert({
+    const clientPayload = {
       client_name: form.client_name.trim(),
       work: form.work.trim(),
       registered_date: form.registered_date,
       quotation: form.quotation.trim(),
       status: form.status,
       remarks: form.remarks.trim() || null,
-      created_by: user.id,
-    });
+    };
+
+    const { error } = editingClientId
+      ? await supabase.from('clients').update(clientPayload).eq('id', editingClientId)
+      : await supabase.from('clients').insert({
+          ...clientPayload,
+          created_by: user.id,
+        });
 
     if (error) {
       setMessage(error.message);
     } else {
-      setForm(emptyClientForm);
-      setMessage('Client added.');
+      const wasEditing = Boolean(editingClientId);
+      resetForm();
+      setMessage(wasEditing ? 'Client updated.' : 'Client added.');
       setShowForm(false);
       window.setTimeout(() => setMessage(''), 3000);
       await onClientSaved();
@@ -1303,18 +1365,18 @@ function ClientsPanel({
           </div>
           <button
             type="button"
-            onClick={() => {
-              setMessage('');
-              setShowForm((current) => !current);
-            }}
+            onClick={startAddClient}
             className="inline-flex items-center justify-center gap-2 rounded-md bg-forest px-5 py-3 font-bold text-white transition hover:bg-teal"
           >
-            <Plus size={18} />
+            {showForm ? <X size={18} /> : <Plus size={18} />}
             {showForm ? 'Hide form' : 'Add client'}
           </button>
         </div>
         {showForm && (
           <form className="mt-5 grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
+            <p className="md:col-span-2 text-sm font-bold text-forest">
+              {editingClientId ? 'Editing client' : 'New client'}
+            </p>
             <label className="grid gap-2 text-sm font-bold">
               Client name
               <input
@@ -1389,12 +1451,13 @@ function ClientsPanel({
                 disabled={busy}
                 className="rounded-md bg-forest px-5 py-3 font-bold text-white transition hover:bg-teal disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {busy ? 'Saving...' : 'Save client'}
+                {busy ? 'Saving...' : editingClientId ? 'Update client' : 'Save client'}
               </button>
               <button
                 type="button"
                 onClick={() => {
                   setMessage('');
+                  resetForm();
                   setShowForm(false);
                 }}
                 className="rounded-md border border-line px-5 py-3 font-bold text-ink transition hover:border-forest"
@@ -1442,6 +1505,7 @@ function ClientsPanel({
                 <th className="px-5 py-3">Quotation</th>
                 <th className="px-5 py-3">Status</th>
                 <th className="px-5 py-3">Remarks</th>
+                <th className="w-28 px-5 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
@@ -1463,11 +1527,43 @@ function ClientsPanel({
                   <td className="min-w-72 px-5 py-4 text-ink/68">
                     {client.remarks || '-'}
                   </td>
+                  <td className="w-28 whitespace-nowrap px-5 py-4">
+                    <div className="inline-flex overflow-hidden rounded-md border border-line bg-white align-middle shadow-sm">
+                      <button
+                        type="button"
+                        onClick={() => startEditClient(client)}
+                        disabled={busy || deletingClientId === client.id}
+                        aria-label={`Edit ${client.client_name}`}
+                        title="Edit client"
+                        className="grid size-9 place-items-center text-forest transition hover:bg-mint disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Pencil size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteClient(client)}
+                        disabled={busy || deletingClientId === client.id}
+                        aria-label={`Delete ${client.client_name}`}
+                        title={
+                          deletingClientId === client.id
+                            ? 'Deleting client'
+                            : 'Delete client'
+                        }
+                        className="grid size-9 place-items-center border-l border-line text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {deletingClientId === client.id ? (
+                          <RefreshCw size={15} className="animate-spin" />
+                        ) : (
+                          <Trash2 size={15} />
+                        )}
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
               {clients.length === 0 && (
                 <tr>
-                  <td className="px-5 py-8 text-center text-ink/60" colSpan={6}>
+                  <td className="px-5 py-8 text-center text-ink/60" colSpan={7}>
                     No clients added yet.
                   </td>
                 </tr>
