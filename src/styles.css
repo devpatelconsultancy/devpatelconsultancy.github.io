@@ -48,6 +48,13 @@ button:focus-visible {
   color: #ffffff;
 }
 
+.new-site h1,
+.new-site h2,
+.new-site h3 {
+  font-family: Georgia, 'Times New Roman', serif;
+  letter-spacing: 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -2,6 +2,7 @@ import { Helmet } from 'react-helmet-async';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
+import NewHomePage from './pages/NewHomePage';
 
 const businessSchema = {
   '@context': 'https://schema.org',
@@ -57,6 +58,7 @@ export default function App() {
       </Helmet>
       <Routes>
         <Route path="/" element={<HomePage />} />
+        <Route path="/new" element={<NewHomePage />} />
         <Route path="/login" element={<LoginPage />} />
       </Routes>
     </BrowserRouter>
