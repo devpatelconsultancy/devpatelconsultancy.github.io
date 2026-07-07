@@ -177,8 +177,25 @@ to authenticated
 using ((select auth.uid()) = id)
 with check ((select auth.uid()) = id and role = 'staff');
 
--- Reset in case an older permissive policy exists in Supabase.
-drop policy if exists "Users can read own work and admins can read all work" on public.work_entries;
+-- Reset work-entry policies in case an older permissive policy exists in Supabase.
+do $$
+declare
+  existing_policy record;
+begin
+  for existing_policy in
+    select policyname
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'work_entries'
+  loop
+    execute format(
+      'drop policy if exists %I on public.work_entries',
+      existing_policy.policyname
+    );
+  end loop;
+end;
+$$;
+
 create policy "Users can read own work and admins can read all work"
 on public.work_entries
 for select

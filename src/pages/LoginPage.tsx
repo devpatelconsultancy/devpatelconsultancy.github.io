@@ -591,6 +591,7 @@ function EntriesTable({
   isAdmin,
   title,
   staffProfiles = [],
+  canEditEntry = () => false,
   onStatusChange,
   onRemarksChange,
 }: {
@@ -598,6 +599,7 @@ function EntriesTable({
   isAdmin: boolean;
   title: string;
   staffProfiles?: StaffProfile[];
+  canEditEntry?: (entry: WorkEntry) => boolean;
   onStatusChange?: (entryId: string, status: WorkEntry['status']) => void;
   onRemarksChange?: (entryId: string, remarks: string) => Promise<void>;
 }) {
@@ -639,7 +641,10 @@ function EntriesTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
-            {entries.map((entry) => (
+            {entries.map((entry) => {
+              const canEdit = canEditEntry(entry);
+
+              return (
               <tr key={entry.id} className="align-top">
                 <td className="whitespace-nowrap px-5 py-4 font-semibold">
                   {formatDate(entry.work_date)}
@@ -653,7 +658,7 @@ function EntriesTable({
                 <td className="min-w-64 px-5 py-4">{entry.task}</td>
                 <td className="px-5 py-4">{entry.hours}</td>
                 <td className="whitespace-nowrap px-5 py-4">
-                  {onStatusChange ? (
+                  {onStatusChange && canEdit ? (
                     <select
                       value={entry.status}
                       onChange={(event) =>
@@ -677,7 +682,7 @@ function EntriesTable({
                   )}
                 </td>
                 <td className="min-w-72 px-5 py-4 text-ink/68">
-                  {onRemarksChange ? (
+                  {onRemarksChange && canEdit ? (
                     <div className="grid gap-2">
                       <textarea
                         rows={2}
@@ -708,7 +713,8 @@ function EntriesTable({
                   )}
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {entries.length === 0 && (
               <tr>
                 <td
@@ -1693,6 +1699,7 @@ function AdminWorkspace({
             entries={visibleEntries}
             isAdmin
             staffProfiles={profiles}
+            canEditEntry={() => true}
             onStatusChange={onStatusChange}
           />
           <RemarkHistoryPanel histories={remarkHistories} profiles={profiles} />
@@ -2063,6 +2070,7 @@ function AdminOverview({
           entries={pendingEntries}
           isAdmin
           staffProfiles={profiles}
+          canEditEntry={() => true}
           onStatusChange={onStatusChange}
         />
       )}
@@ -2072,6 +2080,7 @@ function AdminOverview({
           entries={todaysEntries}
           isAdmin
           staffProfiles={profiles}
+          canEditEntry={() => true}
           onStatusChange={onStatusChange}
         />
         <EntriesTable
@@ -2079,6 +2088,7 @@ function AdminOverview({
           entries={pendingEntries.slice(0, 8)}
           isAdmin
           staffProfiles={profiles}
+          canEditEntry={() => true}
           onStatusChange={onStatusChange}
         />
       </div>
@@ -2207,10 +2217,16 @@ function Dashboard({ session, profile }: { session: Session; profile: StaffProfi
       current.map((entry) => (entry.id === entryId ? { ...entry, status } : entry)),
     );
 
-    const { error: updateError } = await supabase
+    let updateQuery = supabase
       .from('work_entries')
       .update({ status })
       .eq('id', entryId);
+
+    if (!isAdmin) {
+      updateQuery = updateQuery.eq('user_id', session.user.id);
+    }
+
+    const { error: updateError } = await updateQuery;
 
     if (updateError) {
       setEntries(previousEntries);
@@ -2228,10 +2244,16 @@ function Dashboard({ session, profile }: { session: Session; profile: StaffProfi
       ),
     );
 
-    const { error: updateError } = await supabase
+    let updateQuery = supabase
       .from('work_entries')
       .update({ remarks: normalizedRemarks })
       .eq('id', entryId);
+
+    if (!isAdmin) {
+      updateQuery = updateQuery.eq('user_id', session.user.id);
+    }
+
+    const { error: updateError } = await updateQuery;
 
     if (updateError) {
       setEntries(previousEntries);
@@ -2344,6 +2366,7 @@ function Dashboard({ session, profile }: { session: Session; profile: StaffProfi
             title={staffHistoryTitle}
             entries={staffVisibleEntries}
             isAdmin={false}
+            canEditEntry={(entry) => entry.user_id === session.user.id}
             onStatusChange={handleStatusChange}
             onRemarksChange={handleRemarksChange}
           />
