@@ -3,6 +3,7 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import NewHomePage from './pages/NewHomePage';
+import TrackerPage from './pages/TrackerPage';
 
 const businessSchema = {
   '@context': 'https://schema.org',
@@ -60,6 +61,7 @@ export default function App() {
         <Route path="/" element={<HomePage />} />
         <Route path="/new" element={<NewHomePage />} />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/tracker" element={<TrackerPage />} />
       </Routes>
     </BrowserRouter>
   );
