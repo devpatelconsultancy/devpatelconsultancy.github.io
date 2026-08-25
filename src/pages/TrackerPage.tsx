@@ -78,7 +78,7 @@ const defaultProfiles: Profile[] = [
   },
 ];
 
-function createDefaultData(withSample = true): TrackerData {
+function createDefaultData(withSample = false): TrackerData {
   const now = new Date();
   const monday = getWeekStart(now);
   const entries: StudyEntry[] = withSample
@@ -223,7 +223,7 @@ function weeklyStats(entries: StudyEntry[], profile: Profile, weekDate: Date) {
 function loadData(): TrackerData {
   try {
     const stored = localStorage.getItem(storageKey);
-    if (!stored) return createDefaultData();
+    if (!stored) return createDefaultData(false);
     const parsed = JSON.parse(stored) as TrackerData;
     if (!parsed.profiles?.length || !Array.isArray(parsed.entries)) {
       return createDefaultData(false);
