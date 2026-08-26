@@ -233,6 +233,42 @@ function weeklyStats(entries: StudyEntry[], profile: Profile, weekDate: Date) {
   return { dayRows, totalMinutes, showUpDays };
 }
 
+function streakStats(entries: StudyEntry[], profileId: string, fromDate = new Date()) {
+  const entryDates = new Set(
+    entries
+      .filter((entry) => entry.profileId === profileId)
+      .map((entry) => entry.studyDate),
+  );
+  const showUpDates = new Set(
+    Array.from(entryDates).filter(
+      (dateId) => minutesFor(entries, profileId, dateId) >= 30,
+    ),
+  );
+  let currentRun = 0;
+  let cursor = new Date(fromDate);
+
+  while (showUpDates.has(toDateId(cursor))) {
+    currentRun += 1;
+    cursor = addDays(cursor, -1);
+  }
+
+  const sortedDates = Array.from(showUpDates).sort();
+  let bestRun = 0;
+  let activeRun = 0;
+  let previousDate: Date | null = null;
+
+  sortedDates.forEach((dateId) => {
+    const date = dateFromId(dateId);
+    const isConsecutive =
+      previousDate && toDateId(addDays(previousDate, 1)) === dateId;
+    activeRun = isConsecutive ? activeRun + 1 : 1;
+    bestRun = Math.max(bestRun, activeRun);
+    previousDate = date;
+  });
+
+  return { currentRun, bestRun };
+}
+
 function loadData(): TrackerData {
   try {
     const stored = localStorage.getItem(storageKey);
@@ -668,6 +704,7 @@ function WeeklyOverview({
       <div className="mt-5 grid gap-5 lg:grid-cols-2">
         {profiles.map((profile) => {
           const stats = weeklyStats(entries, profile, new Date());
+          const streak = streakStats(entries, profile.id);
           return (
             <div key={profile.id} className="rounded-2xl border border-stone-200 p-4">
               <div className="flex items-center justify-between gap-3">
@@ -695,6 +732,24 @@ function WeeklyOverview({
                 ))}
               </div>
               <div className="mt-5 grid gap-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl bg-stone-50 p-3">
+                    <p className="text-xs font-extrabold uppercase tracking-[0.1em] text-stone-500">
+                      Show-up run
+                    </p>
+                    <p className="mt-1 text-xl font-black text-stone-950">
+                      {streak.currentRun} day{streak.currentRun === 1 ? '' : 's'}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-stone-50 p-3">
+                    <p className="text-xs font-extrabold uppercase tracking-[0.1em] text-stone-500">
+                      Best run
+                    </p>
+                    <p className="mt-1 text-xl font-black text-stone-950">
+                      {streak.bestRun} day{streak.bestRun === 1 ? '' : 's'}
+                    </p>
+                  </div>
+                </div>
                 <div>
                   <div className="mb-2 flex justify-between gap-3 text-sm font-extrabold">
                     <span>Weekly study time</span>
@@ -765,6 +820,7 @@ export default function TrackerPage() {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const activeWeek = weeklyStats(data.entries, activeProfile, new Date());
   const partnerWeek = partner ? weeklyStats(data.entries, partner, new Date()) : null;
+  const activeStreak = streakStats(data.entries, activeProfile.id);
   const weekStartId = toDateId(getWeekStart(new Date()));
   const celebrationDismissed = data.dismissedCelebrations.includes(weekStartId);
 
@@ -1017,8 +1073,8 @@ export default function TrackerPage() {
                   className="h-2"
                   style={{ backgroundColor: activeProfile.accentColor }}
                 />
-                <div className="grid gap-6 p-5 lg:grid-cols-[minmax(0,0.92fr)_minmax(460px,1.08fr)] lg:items-center lg:p-7">
-                  <div className="grid gap-5">
+                <div className="grid gap-5 p-5 xl:grid-cols-[minmax(360px,0.95fr)_minmax(440px,1.05fr)] xl:items-stretch xl:p-6">
+                  <div className="grid content-start gap-4 rounded-3xl border border-stone-200 bg-white p-4">
                     <div className="flex items-start justify-between gap-4">
                       <div>
                         <p className="text-sm font-extrabold uppercase tracking-[0.12em] text-stone-500">
@@ -1039,9 +1095,9 @@ export default function TrackerPage() {
                       </span>
                     </div>
 
-                    <div className="grid gap-4 sm:grid-cols-[auto_1fr] sm:items-end">
+                    <div className="grid gap-4">
                       <div>
-                        <p className="text-6xl font-black leading-none text-stone-950 lg:text-[5.5rem]">
+                        <p className="whitespace-nowrap text-5xl font-black leading-none text-stone-950 sm:text-6xl 2xl:text-7xl">
                           {formatMinutes(todayMinutes)}
                         </p>
                         <p className="mt-3 inline-flex items-center gap-2 rounded-full bg-stone-100 px-4 py-2 font-black text-stone-950">
@@ -1049,7 +1105,7 @@ export default function TrackerPage() {
                           {todayLevel.label}
                         </p>
                       </div>
-                      <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
+                      <div className="rounded-2xl bg-stone-50 p-4">
                         <div className="flex items-center justify-between gap-3 text-sm font-extrabold">
                           <span>Show-up goal</span>
                           <span>{Math.min(todayMinutes, 30)}m / 30m</span>
@@ -1070,111 +1126,133 @@ export default function TrackerPage() {
                           {todaySupportText(todayMinutes)}
                         </p>
                       </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-2xl bg-stone-50 p-4">
+                          <p className="text-xs font-extrabold uppercase tracking-[0.1em] text-stone-500">
+                            Show-up run
+                          </p>
+                          <p className="mt-1 text-2xl font-black text-stone-950">
+                            {activeStreak.currentRun} day
+                            {activeStreak.currentRun === 1 ? '' : 's'}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl bg-stone-50 p-4">
+                          <p className="text-xs font-extrabold uppercase tracking-[0.1em] text-stone-500">
+                            Best run
+                          </p>
+                          <p className="mt-1 text-2xl font-black text-stone-950">
+                            {activeStreak.bestRun} day
+                            {activeStreak.bestRun === 1 ? '' : 's'}
+                          </p>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="rounded-3xl border border-stone-200 bg-stone-50 p-4 lg:p-5">
-                    <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-                      <div>
-                        <p className="text-sm font-extrabold uppercase tracking-[0.12em] text-stone-500">
-                          Add completed study time
-                        </p>
-                        <p className="mt-1 text-sm font-semibold text-stone-600">
-                          Choose the amount you just studied.
-                        </p>
-                      </div>
-                      <p className="text-xs font-bold uppercase tracking-[0.1em] text-stone-400">
-                        One tap
-                      </p>
-                    </div>
-                    <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-3">
-                      <button
-                        type="button"
-                        onClick={() => addMinutes(15)}
-                        className="min-h-24 rounded-2xl text-2xl font-black text-white shadow-sm transition hover:brightness-95 active:scale-[0.98] lg:min-h-28"
-                        style={{ backgroundColor: activeProfile.accentColor }}
-                      >
-                        +15 min
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => addMinutes(30)}
-                        className="min-h-24 rounded-2xl text-2xl font-black text-white shadow-sm transition hover:brightness-95 active:scale-[0.98] lg:min-h-28"
-                        style={{ backgroundColor: activeProfile.accentColor }}
-                      >
-                        +30 min
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => addMinutes(60)}
-                        className="col-span-2 min-h-20 rounded-2xl text-2xl font-black text-white shadow-sm transition hover:brightness-95 active:scale-[0.98] lg:col-span-1 lg:min-h-28"
-                        style={{ backgroundColor: activeProfile.accentColor }}
-                      >
-                        +1 hour
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setCustomOpen(true)}
-                        className="col-span-2 min-h-14 rounded-2xl border border-stone-200 bg-white text-base font-black text-stone-800 transition hover:border-stone-300 hover:bg-stone-50 lg:col-span-3 lg:min-h-16"
-                      >
-                        Custom time
-                      </button>
-                    </div>
-
-                    <div className="mt-4 rounded-2xl border border-stone-200 bg-white p-4">
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="grid gap-4">
+                    <div className="rounded-3xl border border-stone-200 bg-stone-50 p-4 lg:p-5">
+                      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                         <div>
                           <p className="text-sm font-extrabold uppercase tracking-[0.12em] text-stone-500">
-                            Focus timer
+                            Add completed study time
                           </p>
                           <p className="mt-1 text-sm font-semibold text-stone-600">
-                            Track a session, then save it when done.
+                            Choose the amount you just studied.
                           </p>
                         </div>
-                        <span
-                          className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-black"
-                          style={{
-                            backgroundColor: `${activeProfile.accentColor}12`,
-                            color: activeProfile.accentColor,
-                          }}
-                        >
-                          <Clock3 size={14} />
-                          {data.profiles.find((profile) => profile.id === timerProfileId)
-                            ?.displayName ?? activeProfile.displayName}
-                        </span>
+                        <p className="text-xs font-bold uppercase tracking-[0.1em] text-stone-400">
+                          One tap
+                        </p>
                       </div>
-                      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="font-mono text-4xl font-black tracking-normal text-stone-950">
+                      <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-3">
+                        <button
+                          type="button"
+                          onClick={() => addMinutes(15)}
+                          className="min-h-20 rounded-2xl text-xl font-black text-white shadow-sm transition hover:brightness-95 active:scale-[0.98] lg:min-h-24"
+                          style={{ backgroundColor: activeProfile.accentColor }}
+                        >
+                          +15 min
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => addMinutes(30)}
+                          className="min-h-20 rounded-2xl text-xl font-black text-white shadow-sm transition hover:brightness-95 active:scale-[0.98] lg:min-h-24"
+                          style={{ backgroundColor: activeProfile.accentColor }}
+                        >
+                          +30 min
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => addMinutes(60)}
+                          className="col-span-2 min-h-16 rounded-2xl text-xl font-black text-white shadow-sm transition hover:brightness-95 active:scale-[0.98] lg:col-span-1 lg:min-h-24"
+                          style={{ backgroundColor: activeProfile.accentColor }}
+                        >
+                          +1 hour
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCustomOpen(true)}
+                          className="col-span-2 min-h-14 rounded-2xl border border-stone-200 bg-white text-base font-black text-stone-800 transition hover:border-stone-300 hover:bg-stone-50 lg:col-span-3"
+                        >
+                          Custom time
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="rounded-3xl border border-stone-200 bg-white p-4">
+                      <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-center">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-extrabold uppercase tracking-[0.12em] text-stone-500">
+                              Focus timer
+                            </p>
+                            <span
+                              className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-black"
+                              style={{
+                                backgroundColor: `${activeProfile.accentColor}12`,
+                                color: activeProfile.accentColor,
+                              }}
+                            >
+                              <Clock3 size={14} />
+                              {data.profiles.find((profile) => profile.id === timerProfileId)
+                                ?.displayName ?? activeProfile.displayName}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-sm font-semibold text-stone-600">
+                            Time a session, then log it.
+                          </p>
+                        </div>
+                        <p className="font-mono text-3xl font-black tracking-normal text-stone-950 sm:text-4xl">
                           {formatTimerSeconds(timerSeconds)}
                         </p>
-                        <div className="grid grid-cols-3 gap-2 sm:min-w-[280px]">
-                          <button
-                            type="button"
-                            onClick={handleTimerToggle}
-                            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-stone-950 px-3 text-sm font-black text-white"
-                          >
-                            {timerRunning ? <Pause size={16} /> : <Play size={16} />}
-                            {timerRunning ? 'Pause' : 'Start'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleTimerReset}
-                            disabled={timerSeconds === 0 && !timerRunning}
-                            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-stone-200 bg-white px-3 text-sm font-black text-stone-700 disabled:cursor-not-allowed disabled:opacity-45"
-                          >
-                            <Square size={15} />
-                            Reset
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleTimerLog}
-                            disabled={timerSeconds === 0}
-                            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-stone-200 bg-white px-3 text-sm font-black text-stone-700 disabled:cursor-not-allowed disabled:opacity-45"
-                          >
-                            <Check size={16} />
-                            Log
-                          </button>
-                        </div>
+                      </div>
+                      <div className="mt-4 grid grid-cols-3 gap-2">
+                        <button
+                          type="button"
+                          onClick={handleTimerToggle}
+                          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-stone-950 px-3 text-sm font-black text-white"
+                        >
+                          {timerRunning ? <Pause size={16} /> : <Play size={16} />}
+                          {timerRunning ? 'Pause' : 'Start'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleTimerReset}
+                          disabled={timerSeconds === 0 && !timerRunning}
+                          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-stone-200 bg-white px-3 text-sm font-black text-stone-700 disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                          <Square size={15} />
+                          Reset
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleTimerLog}
+                          disabled={timerSeconds === 0}
+                          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-stone-200 bg-white px-3 text-sm font-black text-stone-700 disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                          <Check size={16} />
+                          Log
+                        </button>
                       </div>
                     </div>
                   </div>
