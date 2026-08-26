@@ -10,9 +10,11 @@ import {
   Home,
   Leaf,
   MoreHorizontal,
-  Plus,
+  Pause,
+  Play,
   RotateCcw,
   Settings,
+  Square,
   Trash2,
   X,
 } from 'lucide-react';
@@ -206,6 +208,17 @@ function formatMinutes(minutes: number) {
   if (hours && mins) return `${hours}h ${mins}m`;
   if (hours) return `${hours}h`;
   return `${mins}m`;
+}
+
+function formatTimerSeconds(totalSeconds: number) {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const minuteText = String(minutes).padStart(2, '0');
+  const secondText = String(seconds).padStart(2, '0');
+  return hours > 0
+    ? `${hours}:${minuteText}:${secondText}`
+    : `${minuteText}:${secondText}`;
 }
 
 function weeklyStats(entries: StudyEntry[], profile: Profile, weekDate: Date) {
@@ -733,6 +746,9 @@ export default function TrackerPage() {
   const [undoEntry, setUndoEntry] = useState<StudyEntry | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(todayId);
+  const [timerSeconds, setTimerSeconds] = useState(0);
+  const [timerRunning, setTimerRunning] = useState(false);
+  const [timerProfileId, setTimerProfileId] = useState(activeProfileId);
   const [historyMonth, setHistoryMonth] = useState(() => {
     const date = new Date();
     return new Date(date.getFullYear(), date.getMonth(), 1);
@@ -760,6 +776,24 @@ export default function TrackerPage() {
     saveActiveProfileId(activeProfileId);
   }, [activeProfileId]);
 
+  useEffect(() => {
+    if (!timerRunning) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setTimerSeconds((current) => current + 1);
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [timerRunning]);
+
+  useEffect(() => {
+    if (timerSeconds === 0 && !timerRunning) {
+      setTimerProfileId(activeProfileId);
+    }
+  }, [activeProfileId, timerRunning, timerSeconds]);
+
   function announce(message: string) {
     setToast(message);
     if (liveRef.current) liveRef.current.textContent = message;
@@ -781,6 +815,42 @@ export default function TrackerPage() {
     updateData((current) => ({ ...current, entries: [entry, ...current.entries] }));
     setUndoEntry(entry);
     announce(encouragementFor(minutes, todayMinutes + minutes));
+  }
+
+  function handleTimerToggle() {
+    if (!timerRunning && timerSeconds === 0) {
+      setTimerProfileId(activeProfile.id);
+    }
+
+    setTimerRunning((current) => !current);
+  }
+
+  function handleTimerReset() {
+    setTimerRunning(false);
+    setTimerSeconds(0);
+    setTimerProfileId(activeProfile.id);
+    announce('Timer reset.');
+  }
+
+  function handleTimerLog() {
+    if (timerSeconds <= 0) {
+      announce('Start the timer first, then log the completed time.');
+      return;
+    }
+
+    const minutes = Math.max(1, Math.round(timerSeconds / 60));
+    const timerProfile =
+      data.profiles.find((profile) => profile.id === timerProfileId) ?? activeProfile;
+    const entry = makeEntry(timerProfile.id, minutes, new Date());
+
+    updateData((current) => ({ ...current, entries: [entry, ...current.entries] }));
+    setUndoEntry(entry);
+    setTimerRunning(false);
+    setTimerSeconds(0);
+    setTimerProfileId(activeProfile.id);
+    announce(
+      `Logged ${formatMinutes(minutes)} for ${timerProfile.displayName}. A timed session counts too.`,
+    );
   }
 
   function undoLast() {
@@ -1049,6 +1119,63 @@ export default function TrackerPage() {
                       >
                         Custom time
                       </button>
+                    </div>
+
+                    <div className="mt-4 rounded-2xl border border-stone-200 bg-white p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-sm font-extrabold uppercase tracking-[0.12em] text-stone-500">
+                            Focus timer
+                          </p>
+                          <p className="mt-1 text-sm font-semibold text-stone-600">
+                            Track a session, then save it when done.
+                          </p>
+                        </div>
+                        <span
+                          className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-black"
+                          style={{
+                            backgroundColor: `${activeProfile.accentColor}12`,
+                            color: activeProfile.accentColor,
+                          }}
+                        >
+                          <Clock3 size={14} />
+                          {data.profiles.find((profile) => profile.id === timerProfileId)
+                            ?.displayName ?? activeProfile.displayName}
+                        </span>
+                      </div>
+                      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="font-mono text-4xl font-black tracking-normal text-stone-950">
+                          {formatTimerSeconds(timerSeconds)}
+                        </p>
+                        <div className="grid grid-cols-3 gap-2 sm:min-w-[280px]">
+                          <button
+                            type="button"
+                            onClick={handleTimerToggle}
+                            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-stone-950 px-3 text-sm font-black text-white"
+                          >
+                            {timerRunning ? <Pause size={16} /> : <Play size={16} />}
+                            {timerRunning ? 'Pause' : 'Start'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleTimerReset}
+                            disabled={timerSeconds === 0 && !timerRunning}
+                            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-stone-200 bg-white px-3 text-sm font-black text-stone-700 disabled:cursor-not-allowed disabled:opacity-45"
+                          >
+                            <Square size={15} />
+                            Reset
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleTimerLog}
+                            disabled={timerSeconds === 0}
+                            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-stone-200 bg-white px-3 text-sm font-black text-stone-700 disabled:cursor-not-allowed disabled:opacity-45"
+                          >
+                            <Check size={16} />
+                            Log
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
