@@ -19,6 +19,7 @@ import {
   X,
 } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { hasSupabaseConfig, supabase } from '../lib/supabase';
 
 type View = 'today' | 'history';
 type Profile = {
@@ -59,6 +60,7 @@ type DailyLevel = {
 
 const storageKey = 'couple-study-tracker-v1';
 const activeProfileStorageKey = 'couple-study-tracker-active-profile-v1';
+const trackerCloudId = 'mansi-dev-study-tracker';
 const todayId = toDateId(new Date());
 
 const defaultProfiles: Profile[] = [
@@ -277,22 +279,76 @@ function loadData(): TrackerData {
     if (!parsed.profiles?.length || !Array.isArray(parsed.entries)) {
       return createDefaultData(false);
     }
-    return {
-      ...parsed,
-      profiles: parsed.profiles.map((profile) =>
-        profile.id === 'partner' &&
-        (profile.displayName === 'Partner' || profile.displayName === 'P')
-          ? { ...profile, displayName: 'Dev', initials: 'D' }
-          : profile,
-      ),
-    };
+    return normalizeTrackerData(parsed);
   } catch {
     return createDefaultData(false);
   }
 }
 
+function normalizeTrackerData(parsed: TrackerData): TrackerData {
+  if (!parsed.profiles?.length || !Array.isArray(parsed.entries)) {
+    return createDefaultData(false);
+  }
+
+  return {
+    ...parsed,
+    profiles: parsed.profiles.map((profile) =>
+      profile.id === 'partner' &&
+      (profile.displayName === 'Partner' || profile.displayName === 'P')
+        ? { ...profile, displayName: 'Dev', initials: 'D' }
+        : profile,
+    ),
+    dismissedCelebrations: Array.isArray(parsed.dismissedCelebrations)
+      ? parsed.dismissedCelebrations
+      : [],
+  };
+}
+
 function saveData(data: TrackerData) {
   localStorage.setItem(storageKey, JSON.stringify(data));
+}
+
+async function loadCloudData() {
+  if (!hasSupabaseConfig) {
+    return { data: null, updatedAt: null, error: null };
+  }
+
+  const { data, error } = await supabase
+    .from('tracker_state')
+    .select('data, updated_at')
+    .eq('id', trackerCloudId)
+    .maybeSingle();
+
+  if (error) {
+    return { data: null, updatedAt: null, error };
+  }
+
+  return {
+    data: data?.data ? normalizeTrackerData(data.data as TrackerData) : null,
+    updatedAt: data?.updated_at ?? null,
+    error: null,
+  };
+}
+
+async function saveCloudData(data: TrackerData) {
+  if (!hasSupabaseConfig) {
+    return { updatedAt: null, error: null };
+  }
+
+  const { data: saved, error } = await supabase
+    .from('tracker_state')
+    .upsert(
+      {
+        id: trackerCloudId,
+        data,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'id' },
+    )
+    .select('updated_at')
+    .single();
+
+  return { updatedAt: saved?.updated_at ?? null, error };
 }
 
 function loadActiveProfileId(profiles: Profile[]) {
@@ -804,12 +860,65 @@ export default function TrackerPage() {
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
   const [timerProfileId, setTimerProfileId] = useState(activeProfileId);
+  const [syncStatus, setSyncStatus] = useState<'local' | 'loading' | 'synced' | 'error'>(
+    hasSupabaseConfig ? 'loading' : 'local',
+  );
+  const [syncMessage, setSyncMessage] = useState(
+    hasSupabaseConfig ? 'Connecting to shared tracker...' : 'Local browser only',
+  );
   const [historyMonth, setHistoryMonth] = useState(() => {
     const date = new Date();
     return new Date(date.getFullYear(), date.getMonth(), 1);
   });
   const lastTapRef = useRef(0);
   const liveRef = useRef<HTMLDivElement>(null);
+  const cloudReadyRef = useRef(false);
+  const applyingCloudRef = useRef(false);
+  const lastCloudUpdatedAtRef = useRef<string | null>(null);
+
+  async function refreshFromCloud(silent = false) {
+    const result = await loadCloudData();
+    if (result.error) {
+      setSyncStatus('error');
+      setSyncMessage(
+        result.error.message.includes('tracker_state')
+          ? 'Run supabase-tracker-sync-setup.sql, then refresh.'
+          : result.error.message,
+      );
+      return;
+    }
+
+    if (!result.data) {
+      const saved = await saveCloudData(data);
+      if (saved.error) {
+        setSyncStatus('error');
+        setSyncMessage(saved.error.message);
+        return;
+      }
+      lastCloudUpdatedAtRef.current = saved.updatedAt;
+      cloudReadyRef.current = true;
+      setSyncStatus('synced');
+      setSyncMessage('Shared tracker connected');
+      return;
+    }
+
+    if (result.updatedAt && result.updatedAt !== lastCloudUpdatedAtRef.current) {
+      applyingCloudRef.current = true;
+      setData(result.data);
+      saveData(result.data);
+      lastCloudUpdatedAtRef.current = result.updatedAt;
+      window.setTimeout(() => {
+        applyingCloudRef.current = false;
+      }, 0);
+      if (!silent && cloudReadyRef.current) {
+        announce('Shared tracker refreshed.');
+      }
+    }
+
+    cloudReadyRef.current = true;
+    setSyncStatus('synced');
+    setSyncMessage('Shared tracker connected');
+  }
 
   const activeProfile = data.profiles.find((profile) => profile.id === activeProfileId) ?? data.profiles[0];
   const partner = data.profiles.find((profile) => profile.id !== activeProfile.id);
@@ -826,6 +935,34 @@ export default function TrackerPage() {
 
   useEffect(() => {
     saveData(data);
+  }, [data]);
+
+  useEffect(() => {
+    if (!hasSupabaseConfig) return;
+
+    refreshFromCloud(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hasSupabaseConfig || !cloudReadyRef.current || applyingCloudRef.current) {
+      return;
+    }
+
+    setSyncStatus('loading');
+    setSyncMessage('Saving shared tracker...');
+    const timeoutId = window.setTimeout(async () => {
+      const result = await saveCloudData(data);
+      if (result.error) {
+        setSyncStatus('error');
+        setSyncMessage(result.error.message);
+        return;
+      }
+      lastCloudUpdatedAtRef.current = result.updatedAt;
+      setSyncStatus('synced');
+      setSyncMessage('Shared tracker saved');
+    }, 600);
+
+    return () => window.clearTimeout(timeoutId);
   }, [data]);
 
   useEffect(() => {
@@ -1020,6 +1157,26 @@ export default function TrackerPage() {
                   onClick={() => setActiveProfileId(profile.id)}
                 />
               ))}
+              <span
+                className={`inline-flex min-h-11 items-center rounded-full border px-4 text-sm font-extrabold ${
+                  syncStatus === 'synced'
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                    : syncStatus === 'error'
+                      ? 'border-red-200 bg-red-50 text-red-800'
+                      : syncStatus === 'loading'
+                        ? 'border-amber-200 bg-amber-50 text-amber-800'
+                        : 'border-stone-200 bg-white text-stone-500'
+                }`}
+                title={syncMessage}
+              >
+                {syncStatus === 'synced'
+                  ? 'Synced'
+                  : syncStatus === 'error'
+                    ? 'Sync issue'
+                    : syncStatus === 'loading'
+                      ? 'Syncing'
+                      : 'Local only'}
+              </span>
               <button
                 type="button"
                 onClick={() => setSettingsOpen(true)}
