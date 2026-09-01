@@ -1086,6 +1086,23 @@ export default function TrackerPage() {
     }));
   }
 
+  function updateProfileNumber(
+    profileId: string,
+    field: 'weeklyHoursTarget' | 'weeklyShowUpTarget',
+    rawValue: string,
+    min: number,
+    max: number,
+  ) {
+    if (rawValue === '') {
+      updateProfile(profileId, { [field]: '' } as unknown as Partial<Profile>);
+      return;
+    }
+
+    const value = Number(rawValue);
+    if (!Number.isFinite(value)) return;
+    updateProfile(profileId, { [field]: Math.min(max, Math.max(min, value)) });
+  }
+
   function resetData(withSample: boolean) {
     const next = createDefaultData(withSample);
     setData(next);
@@ -1631,10 +1648,19 @@ export default function TrackerPage() {
                         type="number"
                         value={profile.weeklyHoursTarget}
                         onChange={(event) =>
-                          updateProfile(profile.id, {
-                            weeklyHoursTarget: Math.max(1, Number(event.target.value || 1)),
-                          })
+                          updateProfileNumber(
+                            profile.id,
+                            'weeklyHoursTarget',
+                            event.target.value,
+                            1,
+                            80,
+                          )
                         }
+                        onBlur={(event) => {
+                          if (event.target.value === '') {
+                            updateProfile(profile.id, { weeklyHoursTarget: 1 });
+                          }
+                        }}
                         className="min-h-12 rounded-xl border border-stone-300 px-3 font-bold"
                       />
                     </label>
@@ -1646,10 +1672,19 @@ export default function TrackerPage() {
                         type="number"
                         value={profile.weeklyShowUpTarget}
                         onChange={(event) =>
-                          updateProfile(profile.id, {
-                            weeklyShowUpTarget: Math.min(7, Math.max(1, Number(event.target.value || 1))),
-                          })
+                          updateProfileNumber(
+                            profile.id,
+                            'weeklyShowUpTarget',
+                            event.target.value,
+                            1,
+                            7,
+                          )
                         }
+                        onBlur={(event) => {
+                          if (event.target.value === '') {
+                            updateProfile(profile.id, { weeklyShowUpTarget: 1 });
+                          }
+                        }}
                         className="min-h-12 rounded-xl border border-stone-300 px-3 font-bold"
                       />
                     </label>
