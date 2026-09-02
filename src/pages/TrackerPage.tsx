@@ -157,43 +157,56 @@ function minutesFor(entries: StudyEntry[], profileId: string, dateId: string) {
     .reduce((total, entry) => total + entry.durationMinutes, 0);
 }
 
-function levelFor(minutes: number): DailyLevel {
-  if (minutes >= 240) {
+function numericTarget(value: number, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function dailyTargetMinutes(profile: Profile) {
+  const weeklyHours = numericTarget(profile.weeklyHoursTarget, 14);
+  const showUpDays = numericTarget(profile.weeklyShowUpTarget, 5);
+  return Math.max(30, Math.round((weeklyHours * 60) / showUpDays));
+}
+
+function fireCueFor(minutes: number, targetMinutes: number) {
+  if (minutes >= targetMinutes) return 0;
+  return Math.min(3, Math.max(1, Math.floor(minutes / 60)));
+}
+
+function levelFor(minutes: number, targetMinutes = 240): DailyLevel {
+  const fill = Math.min((minutes / targetMinutes) * 100, 100);
+
+  if (minutes >= targetMinutes) {
     return {
       key: 'strong',
-      icon: '🔥🔥🔥',
-      label: 'Strong day',
+      icon: '🏅',
+      label: 'Target achieved',
       emphasis: 'fully filled',
       fill: 100,
     };
   }
-  if (minutes >= 120) {
-    return {
-      key: 'focused',
-      icon: '🔥🔥',
-      label: 'Focused day',
-      emphasis: 'two-thirds filled',
-      fill: 66,
-    };
-  }
+
   if (minutes >= 30) {
+    const fires = fireCueFor(minutes, targetMinutes);
     return {
-      key: 'showed',
-      icon: '🔥',
-      label: 'Showed up',
-      emphasis: 'one-third filled',
-      fill: 38,
+      key: fires >= 3 ? 'focused' : 'showed',
+      icon: '🔥'.repeat(fires),
+      label: fires === 1 ? 'Showed up' : `${fires} fire cue`,
+      emphasis: 'building toward target',
+      fill,
     };
   }
+
   if (minutes > 0) {
     return {
       key: 'started',
       icon: '🌱',
       label: 'Started',
       emphasis: 'subtle fill',
-      fill: 18,
+      fill: Math.max(12, fill),
     };
   }
+
   return {
     key: 'none',
     icon: '○',
@@ -225,10 +238,11 @@ function formatTimerSeconds(totalSeconds: number) {
 
 function weeklyStats(entries: StudyEntry[], profile: Profile, weekDate: Date) {
   const days = getWeekDays(weekDate);
+  const targetMinutes = dailyTargetMinutes(profile);
   const dayRows = days.map((day) => {
     const dateId = toDateId(day);
     const minutes = minutesFor(entries, profile.id, dateId);
-    return { date: day, dateId, minutes, level: levelFor(minutes) };
+    return { date: day, dateId, minutes, level: levelFor(minutes, targetMinutes) };
   });
   const totalMinutes = dayRows.reduce((total, day) => total + day.minutes, 0);
   const showUpDays = dayRows.filter((day) => day.minutes >= 30).length;
@@ -399,16 +413,29 @@ function encouragementFor(minutes: number, total: number) {
   return `Added ${formatMinutes(minutes)}. A small session still counts.`;
 }
 
-function todaySupportText(minutes: number) {
-  if (minutes >= 240) return 'Strong day. You can let enough be enough.';
-  if (minutes >= 120) return 'Focused day. The habit is well protected.';
-  if (minutes >= 30) return 'You showed up. Anything more is extra care.';
-  if (minutes > 0) return `${formatMinutes(30 - minutes)} more will mark today as showed up.`;
-  return 'One tap is enough to begin.';
+function todayCue(minutes: number, targetMinutes: number) {
+  if (minutes < 30) {
+    return {
+      label: 'Show-up cue',
+      value: `${Math.min(minutes, 30)}m / 30m`,
+      progress: Math.min((minutes / 30) * 100, 100),
+    };
+  }
+
+  return {
+    label: "Today's target",
+    value: `${formatMinutes(Math.min(minutes, targetMinutes))} / ${formatMinutes(targetMinutes)}`,
+    progress: Math.min((minutes / targetMinutes) * 100, 100),
+  };
 }
 
-function showUpProgress(minutes: number) {
-  return Math.min((minutes / 30) * 100, 100);
+function todaySupportText(minutes: number, targetMinutes: number) {
+  if (minutes >= targetMinutes) return 'Daily target achieved. That earns the medal.';
+  if (minutes >= 30) {
+    return `${formatMinutes(targetMinutes - minutes)} more to complete today's target.`;
+  }
+  if (minutes > 0) return `${formatMinutes(30 - minutes)} more will mark today as showed up.`;
+  return 'One tap is enough to begin.';
 }
 
 function ProgressCircle({
@@ -922,8 +949,10 @@ export default function TrackerPage() {
 
   const activeProfile = data.profiles.find((profile) => profile.id === activeProfileId) ?? data.profiles[0];
   const partner = data.profiles.find((profile) => profile.id !== activeProfile.id);
+  const activeDailyTargetMinutes = dailyTargetMinutes(activeProfile);
   const todayMinutes = minutesFor(data.entries, activeProfile.id, todayId);
-  const todayLevel = levelFor(todayMinutes);
+  const todayLevel = levelFor(todayMinutes, activeDailyTargetMinutes);
+  const activeTodayCue = todayCue(todayMinutes, activeDailyTargetMinutes);
   const activeTodayEntries = data.entries
     .filter((entry) => entry.profileId === activeProfile.id && entry.studyDate === todayId)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -1281,14 +1310,14 @@ export default function TrackerPage() {
                       </div>
                       <div className="rounded-2xl bg-stone-50 p-4">
                         <div className="flex items-center justify-between gap-3 text-sm font-extrabold">
-                          <span>Show-up goal</span>
-                          <span>{Math.min(todayMinutes, 30)}m / 30m</span>
+                          <span>{activeTodayCue.label}</span>
+                          <span>{activeTodayCue.value}</span>
                         </div>
                         <div className="mt-3 h-3 overflow-hidden rounded-full bg-stone-200">
                           <div
                             className="h-full rounded-full transition-all"
                             style={{
-                              width: `${showUpProgress(todayMinutes)}%`,
+                              width: `${activeTodayCue.progress}%`,
                               backgroundColor: activeProfile.accentColor,
                             }}
                           />
@@ -1297,7 +1326,7 @@ export default function TrackerPage() {
                           className="mt-3 text-sm font-bold leading-6"
                           style={{ color: activeProfile.accentColor }}
                         >
-                          {todaySupportText(todayMinutes)}
+                          {todaySupportText(todayMinutes, activeDailyTargetMinutes)}
                         </p>
                       </div>
                       <div className="grid grid-cols-2 gap-3">
@@ -1461,10 +1490,16 @@ export default function TrackerPage() {
                           </span>
                           <div>
                             <p className="font-black">{partner.displayName}</p>
-                            <p className="text-sm font-semibold text-stone-600">
-                              {levelFor(minutesFor(data.entries, partner.id, todayId)).icon}{' '}
+                        <p className="text-sm font-semibold text-stone-600">
+                              {levelFor(
+                                minutesFor(data.entries, partner.id, todayId),
+                                dailyTargetMinutes(partner),
+                              ).icon}{' '}
                               {formatMinutes(minutesFor(data.entries, partner.id, todayId))} -{' '}
-                              {levelFor(minutesFor(data.entries, partner.id, todayId)).label}
+                              {levelFor(
+                                minutesFor(data.entries, partner.id, todayId),
+                                dailyTargetMinutes(partner),
+                              ).label}
                             </p>
                           </div>
                         </div>
@@ -1531,7 +1566,7 @@ export default function TrackerPage() {
                     const dateId = toDateId(date);
                     const inMonth = date.getMonth() === historyMonth.getMonth();
                     const total = minutesFor(data.entries, activeProfile.id, dateId);
-                    const level = levelFor(total);
+                    const level = levelFor(total, activeDailyTargetMinutes);
                     return (
                       <button
                         key={dateId}
